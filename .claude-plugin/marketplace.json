@@ -1,0 +1,11 @@
+{
+  "name": "freecad-3dprint",
+  "owner": { "name": "Nicholas Lim" },
+  "plugins": [
+    {
+      "name": "freecad-3dprint",
+      "source": "./",
+      "description": "Design 3D-printable parts as parametric FreeCAD scripts with automated printability checks, renders and slicer verification."
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "freecad-3dprint",
+  "description": "Design 3D-printable parts as parametric FreeCAD scripts with automated printability checks, renders and slicer verification.",
+  "version": "0.1.0",
+  "author": { "name": "Nicholas Lim" },
+  "homepage": "https://github.com/nicholaslimck/freecad-3dprint",
+  "repository": "https://github.com/nicholaslimck/freecad-3dprint",
+  "license": "MIT",
+  "keywords": ["freecad", "cad", "3d-printing", "skill"]
+}

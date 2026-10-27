@@ -1,0 +1,46 @@
+{
+  "name": "mount_plate",
+  "units": "mm",
+
+  "geometry": {
+    "length": 60,
+    "width": 30,
+    "thickness": 4,
+    "corner_radius": 4,
+    "top_fillet": 1.0,
+    "hole_d": 3.4,
+    "hole_inset": 6,
+    "cb_d": 6.5,
+    "cb_depth": 2
+  },
+
+  "print": {
+    "process": "fdm",
+    "nozzle": 0.4,
+    "layer_height": 0.2,
+    "min_wall": 0.8,
+    "max_overhang_deg": 45,
+    "supports_allowed": false,
+    "rotate": [],
+    "build_volume": [256, 256, 256],
+    "elephant_foot_chamfer": 0.4,
+    "teardrop_above_d": 5
+  },
+
+  "export": {
+    "linear_deflection": 0.01,
+    "angular_deflection_deg": 5
+  },
+
+  "checks": {
+    "bbox_mm": [60, 30, 4],
+    "bbox_tol": 0.05
+  },
+
+  "slicer": {
+    "type": "prusa",
+    "exe": "",
+    "config": "",
+    "args": []
+  }
+}

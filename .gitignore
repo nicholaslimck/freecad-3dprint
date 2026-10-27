@@ -1,0 +1,15 @@
+# pipeline output
+out/
+*.gcode
+*.FCStd1
+*.FCBak
+
+# python
+__pycache__/
+*.pyc
+
+# os / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
