@@ -43,9 +43,31 @@ The renders are a six-view contact sheet in print orientation, with overhangs sh
 /plugin install freecad-3dprint@freecad-3dprint
 ```
 
-### Other agents
+### OpenCode, Codex, Gemini CLI
 
-Copy `skills/freecad-3dprint/` somewhere your agent can read it, then point the agent at `SKILL.md`, for example from your `AGENTS.md`. The skill refers to its own `kit/` and `references/` folders by relative path, so keep the folder intact.
+These all load skills from `~/.agents/skills/<name>/SKILL.md`, so one copy covers all three. In PowerShell:
+
+```powershell
+git clone https://github.com/nicholaslimck/freecad-3dprint "$HOME\src\freecad-3dprint"
+New-Item -ItemType Directory -Force "$HOME\.agents\skills" | Out-Null
+Copy-Item -Recurse "$HOME\src\freecad-3dprint\skills\freecad-3dprint" "$HOME\.agents\skills\"
+```
+
+To update, `git pull` in the clone, delete `$HOME\.agents\skills\freecad-3dprint`, and copy it again. For a single project instead of every project, copy the folder into `<project>\.agents\skills\` instead.
+
+Each tool also has its own location if you prefer:
+
+| Agent | User-wide | Per project |
+|---|---|---|
+| OpenCode | `~/.config/opencode/skills/` (also reads `~/.claude/skills/`) | `.opencode/skills/` |
+| Gemini CLI | `~/.gemini/skills/`, or `gemini skills install https://github.com/nicholaslimck/freecad-3dprint.git --path skills/freecad-3dprint` | `.gemini/skills/` |
+| Claude Code (without the plugin) | `~/.claude/skills/` | `.claude/skills/` |
+
+### Any other agent
+
+Copy `skills/freecad-3dprint/` somewhere your agent can read it, then point the agent at `SKILL.md`, for example from your `AGENTS.md`.
+
+Whichever way you install, keep the folder intact and named `freecad-3dprint`. The skill refers to its own `kit/` and `references/` folders by relative path, and skill loaders expect the folder name to match the `name` in `SKILL.md`.
 
 ## Quick start
 
