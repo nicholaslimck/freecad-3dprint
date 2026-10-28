@@ -4,6 +4,10 @@ Edit ONLY the feature functions and build(). All numbers come from params.json;
 do not hard-code dimensions here. Each feature is its own function so a change
 to one feature never requires regenerating the others.
 
+Coupons are cut from the real part (params.coupon), not modelled separately:
+that keeps the real wall, lip, groove and print orientation, and stops a feature
+fix from existing in only one copy.
+
 The example part is a mounting plate with four counterbored M3 holes. Replace it.
 """
 import os
@@ -14,7 +18,6 @@ sys.path.insert(0, os.path.join(os.environ.get("FCP_PROJECT") or os.getcwd(), "f
 from cadlib import *  # noqa: E402,F401,F403
 
 P = load_params()
-G = P["geometry"]
 WARN = []  # non-fatal problems (e.g. a fillet that OCC refused); reported in build_status.json
 
 
@@ -40,12 +43,13 @@ def top_edge_round(s, g):
 
 
 # ---------------------------------------------------------------- assembly
-def build():
-    g = G
+def build(params):
+    """Build every part from `params`. Called again with overrides for coupon variants."""
+    g = params["geometry"]
     s = base_plate(g)
     s = mounting_holes(s, g)
     s = top_edge_round(s, g)
-    s = chamfer_bed_edges(s, P["print"].get("elephant_foot_chamfer", 0), P, WARN)
+    s = chamfer_bed_edges(s, params["print"].get("elephant_foot_chamfer", 0), params, WARN)
     return s.removeSplitter()
     # Multi-part projects: return {"lid": lid_shape, "base": base_shape}
 
@@ -54,19 +58,25 @@ def build():
 def main():
     status = {"ok": False, "warnings": WARN}
     try:
-        result = build()
-        shapes = result if isinstance(result, dict) else {"_": result}
-        for name, sh in shapes.items():
+        result = build(P)
+        parts = dict(result) if isinstance(result, dict) else {P.get("name", "part"): result}
+        parts = add_coupons(parts, P, build, WARN)
+        for name, sh in parts.items():
             if not sh.isValid():
                 raise RuntimeError("shape '%s' is invalid after build" % name)
-        parts, fcstd = export_all(result, P)
-        status.update(ok=True, parts=parts, fcstd=fcstd)
+        records, fcstd = export_all(parts, P)
+        status.update(ok=True, parts=records, fcstd=fcstd)
+        sheet = write_coupon_sheet(P, records)
+        if sheet:
+            status["coupon_sheet"] = sheet
     except Exception:  # noqa: BLE001
         status["error"] = traceback.format_exc()
     write_json("build_status.json", status)
     print("BUILD", "OK" if status["ok"] else "FAILED")
     if not status["ok"]:
         print(status["error"])
+    for w in WARN:
+        print("  warning: " + w)
 
 
 main()

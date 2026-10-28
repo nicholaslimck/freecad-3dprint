@@ -1,5 +1,6 @@
 {
   "name": "mount_plate",
+  "version": 1,
   "units": "mm",
 
   "geometry": {
@@ -7,7 +8,7 @@
     "width": 30,
     "thickness": 4,
     "corner_radius": 4,
-    "top_fillet": 1.0,
+    "top_fillet": 0.0,
     "hole_d": 3.4,
     "hole_inset": 6,
     "cb_d": 6.5,
@@ -21,10 +22,18 @@
     "min_wall": 0.8,
     "max_overhang_deg": 45,
     "supports_allowed": false,
+    "support_gap_mm": 0.6,
     "rotate": [],
     "build_volume": [256, 256, 256],
     "elephant_foot_chamfer": 0.4,
-    "teardrop_above_d": 5
+    "teardrop_above_d": 5,
+    "preview": {
+      "done": false,
+      "supports_off": false,
+      "by": "",
+      "date": "",
+      "evidence": ""
+    }
   },
 
   "export": {
@@ -33,8 +42,32 @@
   },
 
   "checks": {
-    "bbox_mm": [60, 30, 4],
-    "bbox_tol": 0.05
+    "bbox_mm": {"mount_plate": [60, 30, 4]},
+    "bbox_tol": 0.05,
+    "expected_solids": 1,
+    "inside_points": [],
+    "relations": [],
+    "accept": []
+  },
+
+  "part_meta": {
+    "mount_plate": {"purpose": "example plate; replace with the real part"}
+  },
+
+  "render": {
+    "features": []
+  },
+
+  "coupon": {
+    "enabled": false,
+    "source": "",
+    "section_mm": [],
+    "name": "coupon",
+    "purpose": "",
+    "assembly": "separate parts, printed in the case orientation",
+    "variants": [],
+    "test_steps": [],
+    "pass_criteria": []
   },
 
   "slicer": {

@@ -9,13 +9,17 @@ Conventions:
   * Hole helpers take the point where the hole ENTERS the material and the
     direction it drills in (default straight down, -Z).
 """
+import hashlib
 import json
 import math
 import os
+import time
 
 import FreeCAD as App
 import Part
 from FreeCAD import Vector as V
+
+from analysis import design_hash
 
 EPS = 0.01  # overshoot for boolean cuts so faces never coincide
 
@@ -36,10 +40,16 @@ def load_params():
         return json.load(f)
 
 
+def write_text(path, text):
+    """Write UTF-8 without a BOM. FreeCADCmd refuses a BOM'd script."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
 def write_json(name, data):
     path = os.path.join(out_dir(), name)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, default=str)
+    write_text(path, json.dumps(data, indent=2, default=str))
     return path
 
 
@@ -49,6 +59,21 @@ def read_json(name):
         return None
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def part_stem(name, P):
+    """Output file stem: <name>_v<version> when params.version is set."""
+    v = P.get("version")
+    return name if v in (None, "") else "%s_v%s" % (name, v)
+
 
 
 def _v(p):
@@ -233,30 +258,149 @@ def mesh_from_shape(shape, P, linear=None, angular_deg=None):
                                   AngularDeflection=math.radians(ang), Relative=False)
 
 
+# ---------------------------------------------------------------- coupons
+def section(shape, bb_min, bb_max):
+    """Keep only the boxed region: a coupon cut out of the real part.
+
+    The section inherits the real wall thickness, lip, groove and orientation,
+    so a flex or snap test on it means something. Cap faces come from the boolean.
+    """
+    lo, hi = _v(bb_min), _v(bb_max)
+    if min(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z) <= 0:
+        raise ValueError("coupon.section_mm: max corner must be larger than min on every axis")
+    tool = Part.makeBox(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z, lo)
+    out = shape.common(tool)
+    if not out.Solids:
+        raise RuntimeError("coupon section contains no solid: check coupon.section_mm")
+    return out.removeSplitter()
+
+
+def merge_params(base, overrides):
+    """Deep-merge `overrides` into a copy of `base` (dicts merge, everything else replaces)."""
+    import copy
+
+    out = copy.deepcopy(base)
+    for key, value in (overrides or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge_params(out[key], value)
+        else:
+            out[key] = copy.deepcopy(value)
+    return out
+
+
+def add_coupons(parts, params, build_fn, warnings=None):
+    """Add coupon variants cut from the real part named in params.coupon.
+
+    `build_fn(params)` must build the project from a params dict, so a variant's
+    overrides reuse the real geometry instead of a copy of the dimensions.
+    """
+    warnings = warnings if warnings is not None else []
+    c = params.get("coupon") or {}
+    if not c.get("enabled"):
+        return parts
+    source = c.get("source")
+    section_mm = c.get("section_mm")
+    if not source or not section_mm:
+        warnings.append("coupon.enabled needs source and section_mm; a block coupon does not "
+                        "reproduce thin-wall flex or snap behaviour")
+        return parts
+    prefix = c.get("name") or "coupon"
+    for variant in (c.get("variants") or [{"name": "nominal"}]):
+        name = "%s_%s" % (prefix, variant.get("name", "nominal"))
+        shapes = build_fn(merge_params(params, variant["overrides"])) if variant.get("overrides") else parts
+        parent = shapes.get(source) if isinstance(shapes, dict) else shapes
+        if parent is None:
+            warnings.append("coupon source '%s' is not one of the built parts" % source)
+            continue
+        try:
+            parts[name] = section(parent, section_mm[0], section_mm[1])
+        except Exception as exc:  # noqa: BLE001 - report a bad section instead of losing the build
+            warnings.append("coupon %s failed: %s" % (name, exc))
+    return parts
+
+
+def write_coupon_sheet(params, records):
+    """Human test sheet for the printed coupon: orientation, assembly, pass/fail."""
+    c = params.get("coupon") or {}
+    if not c.get("enabled"):
+        return None
+    prefix = c.get("name") or "coupon"
+    pr = params.get("print", {})
+    lines = [
+        "# Coupon test sheet: %s" % prefix,
+        "",
+        "Purpose: %s" % c.get("purpose", "validate the printed feature before the full part"),
+        "",
+        "## Source",
+        "Section of `%s`, box %s in design coordinates: `%s`." %
+        (c.get("source"), c.get("section_mm"), prefix),
+        "The section is cut from the real geometry, so wall thickness, lip, groove and "
+        "orientation are the parts you will actually print.",
+        "",
+        "## Print",
+        "- `print.rotate` = %s (same orientation as the real part)" % pr.get("rotate", []),
+        "- supports allowed: %s; layer %s mm, nozzle %s mm" %
+        (pr.get("supports_allowed", False), pr.get("layer_height", 0.2), pr.get("nozzle", 0.4)),
+        "- Files: see `out/manifest.json` -> `slice_this`. Slice the current export, not an older one.",
+        "",
+        "## Assembly",
+        "%s" % c.get("assembly", "as the real part"),
+        "",
+        "## Test steps",
+    ]
+    steps = c.get("test_steps") or [
+        "Slice with supports off and look at the preview: no unsupported overhangs.",
+        "Print, clean up, then assemble or flex the feature as the real part would be used.",
+        "Measure the fit and record the result in spec.md.",
+    ]
+    lines += ["%d. %s" % (i + 1, s) for i, s in enumerate(steps)]
+    lines += ["", "## Pass / fail"]
+    lines += ["- [ ] %s" % s for s in (c.get("pass_criteria") or [
+        "The feature engages and releases without cracking.",
+        "No drooping or stringing on the retention face.",
+        "Measured fit is within the range recorded in spec.md.",
+    ])]
+    lines += ["", "Coupon parts: " + ", ".join(r["name"] for r in records
+                                               if r["name"].startswith(prefix)) + ""]
+    path = os.path.join(out_dir(), prefix + "_test_sheet.md")
+    write_text(path, "\n".join(lines) + "\n")
+    return path
+
+
 # ---------------------------------------------------------------- export
 def export_all(result, P):
-    """Write FCStd + STEP (design orientation) and STL/3MF (print orientation).
+    """Write FCStd + STEP (design orientation), STL/3MF (print orientation) and the manifest.
 
     `result` is a Part.Shape or a dict {part_name: Part.Shape}.
     Returns the parts list stored in build_status.json.
     """
     parts = result if isinstance(result, dict) else {P.get("name", "part"): result}
     od = out_dir()
+    meta = P.get("part_meta", {})
     doc = App.newDocument(P.get("name", "part").replace("-", "_"))
     records = []
     for name, shape in parts.items():
         obj = doc.addObject("Part::Feature", name.replace("-", "_"))
         obj.Shape = shape
-        step = os.path.join(od, name + ".step")
+        stem = part_stem(name, P)
+        step = os.path.join(od, stem + ".step")
         shape.exportStep(step)
         mesh = mesh_from_shape(print_oriented(shape, P), P)
-        stl = os.path.join(od, name + "_print.stl")
+        stl = os.path.join(od, stem + "_print.stl")
         mesh.write(stl)
-        rec = {"name": name, "step": step, "stl": stl, "facets": mesh.CountFacets}
+        rec = {"name": name, "stem": stem,
+               "purpose": meta.get(name, {}).get("purpose", ""),
+               "step": step, "stl": stl, "slice_this": stl,
+               "files": {"step": step, "stl": stl},
+               "sha256": {"step": sha256_file(step), "stl": sha256_file(stl)},
+               "facets": mesh.CountFacets}
         try:
-            tmf = os.path.join(od, name + "_print.3mf")
+            tmf = os.path.join(od, stem + "_print.3mf")
             mesh.write(tmf)
             rec["3mf"] = tmf
+            rec["slice_this"] = tmf
+            rec["files"]["3mf"] = tmf
+            rec["sha256"]["3mf"] = sha256_file(tmf)
         except Exception as exc:  # noqa: BLE001 - older FreeCAD builds lack 3MF
             rec["3mf_error"] = str(exc)
         bb = shape.BoundBox
@@ -264,7 +408,23 @@ def export_all(result, P):
         rec["volume_mm3"] = round(shape.Volume, 3)
         records.append(rec)
     doc.recompute()
-    fcstd = os.path.join(od, P.get("name", "part") + ".FCStd")
+    fcstd = os.path.join(od, part_stem(P.get("name", "part"), P) + ".FCStd")
     doc.saveAs(fcstd)
     App.closeDocument(doc.Name)
+
+    sources = {}
+    for rel in ("build.py",):
+        path = os.path.join(project_dir(), rel)
+        if os.path.exists(path):
+            sources[rel] = sha256_file(path)
+    sources["design"] = design_hash(P)
+    manifest = {
+        "name": P.get("name", "part"),
+        "version": P.get("version"),
+        "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "orientation": P.get("print", {}).get("rotate", []),
+        "sources": sources,
+        "parts": records,
+    }
+    write_text(os.path.join(od, "manifest.json"), json.dumps(manifest, indent=2, default=str))
     return records, fcstd
