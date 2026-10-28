@@ -2,8 +2,8 @@
 
 Run with:  FreeCADCmd.exe fcp\\gate.py   (or run.ps1 -Step gate; no FreeCAD needed)
 
-Reads out/report.json, out/render_status.json, out/slice_report.json,
-out/manifest.json and params.json, writes out/print_gate.json:
+Reads .out/report.json, .out/render_status.json, .out/slice_report.json,
+.out/manifest.json and params.json, writes .out/print_gate.json:
 
   {"printable": bool, "reasons": [...], "untriaged": [...], "checks": {...}}
 
@@ -23,7 +23,7 @@ import time
 from analysis import design_hash
 
 PROJECT = os.environ.get("FCP_PROJECT") or os.getcwd()
-OUT = os.path.join(PROJECT, "out")
+OUT = os.path.join(PROJECT, ".out")
 
 
 def read_json(name):
@@ -79,12 +79,12 @@ def evaluate(P, report, render, manifest, slice_report):
     reasons, untriaged, checks = [], [], {}
 
     if not report:
-        reasons.append("no out/report.json; run build.py then check_print.py")
+        reasons.append("no .out/report.json; run build.py then check_print.py")
         report = {}
     if report.get("error"):
         reasons.append("check crashed; see report.error")
     if not report.get("pass"):
-        reasons.append("checks failed (out/report.json pass=false)")
+        reasons.append("checks failed (.out/report.json pass=false)")
 
     accept = P.get("checks", {}).get("accept", [])
     for part in report.get("parts", []):
@@ -100,12 +100,12 @@ def evaluate(P, report, render, manifest, slice_report):
         reasons.append("%d warning(s) have no acceptance with evidence (checks.accept)" % len(untriaged))
 
     if not render or not render.get("ok"):
-        reasons.append("renders missing or failed (out/render_status.json)")
+        reasons.append("renders missing or failed (.out/render_status.json)")
     elif render.get("warnings"):
         reasons.append("render warnings: " + "; ".join(str(w) for w in render["warnings"][:4]))
 
     if not manifest:
-        reasons.append("no out/manifest.json; rerun build.py")
+        reasons.append("no .out/manifest.json; rerun build.py")
     else:
         for rel, digest in (manifest.get("sources") or {}).items():
             if rel == "design":
@@ -140,7 +140,7 @@ def evaluate(P, report, render, manifest, slice_report):
             reasons.append("slicer reported problems: " + "; ".join(problems[:6]))
         else:
             slicer_ok = True
-            checks["preview"] = {"mode": "slicer", "report": "out/slice_report.json"}
+            checks["preview"] = {"mode": "slicer", "report": ".out/slice_report.json"}
 
     preview = P.get("print", {}).get("preview") or {}
     if not slicer_ok:
@@ -181,5 +181,6 @@ def main():
 
 if not os.environ.get("FCP_NO_MAIN"):
     main()  # FreeCADCmd does not set __name__ == "__main__"
+
 
 

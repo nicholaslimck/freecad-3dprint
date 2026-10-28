@@ -12,7 +12,7 @@ params.json "slicer":
          (verify flags with `orca-slicer.exe --help` on your version):
          ["--slice", "0", "--load-settings", "{config}", "--outputdir", "{outdir}", "{model}"]
 
-Writes out/slice_report.json.
+Writes .out/slice_report.json.
 """
 import glob
 import json
@@ -22,7 +22,7 @@ import subprocess
 import time
 
 PROJECT = os.environ.get("FCP_PROJECT") or os.getcwd()
-OUT = os.path.join(PROJECT, "out")
+OUT = os.path.join(PROJECT, ".out")
 
 PRUSA_GUESSES = [
     r"C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe",
@@ -88,7 +88,7 @@ def sha256(path):
 
 
 def update_manifest(report):
-    """Record what was sliced in out/manifest.json so the gate can spot a stale file."""
+    """Record what was sliced in .out/manifest.json so the gate can spot a stale file."""
     path = os.path.join(OUT, "manifest.json")
     if not os.path.exists(path):
         return

@@ -179,5 +179,5 @@ The kit scripts call `main()` directly for this reason.
 `fcp/doctor.py` scans the project for BOMs.
 
 **Exit codes are not reliable** for FreeCADCmd. Every kit step writes
-`out/<step>_status.json` or `out/report.json`; read those instead.
+`.out/<step>_status.json` or `.out/report.json`; read those instead.
 

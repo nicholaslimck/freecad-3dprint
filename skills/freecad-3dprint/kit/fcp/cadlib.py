@@ -30,7 +30,8 @@ def project_dir():
 
 
 def out_dir():
-    d = os.path.join(project_dir(), "out")
+    """Generated files live in .out/ so the project folder stays readable."""
+    d = os.path.join(project_dir(), ".out")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -341,7 +342,7 @@ def write_coupon_sheet(params, records):
         "- `print.rotate` = %s (same orientation as the real part)" % pr.get("rotate", []),
         "- supports allowed: %s; layer %s mm, nozzle %s mm" %
         (pr.get("supports_allowed", False), pr.get("layer_height", 0.2), pr.get("nozzle", 0.4)),
-        "- Files: see `out/manifest.json` -> `slice_this`. Slice the current export, not an older one.",
+        "- Files: see `.out/manifest.json` -> `slice_this`. Slice the current export, not an older one.",
         "",
         "## Assembly",
         "%s" % c.get("assembly", "as the real part"),

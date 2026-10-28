@@ -5,7 +5,7 @@ Run:  python tests/e2e_cases.py [--keep]
 Needs FreeCADCmd: $env:FREECAD_CMD, else a common Program Files install.
 Builds throwaway projects under %TEMP%/opencode/fcp-e2e. Never touches a real
 project. FreeCADCmd's exit code is unreliable, so every case asserts on the
-out/*.json status files instead.
+.out/*.json status files instead.
 
 Cases (from the improvement handoff):
   1. shelf attached at one end          -> flat_cantilever, not a bridge
@@ -161,7 +161,7 @@ class Case:
         return (proc.stdout or "") + (proc.stderr or "")
 
     def json(self, rel):
-        path = os.path.join(self.dir, "out", rel)
+        path = os.path.join(self.dir, ".out", rel)
         if not os.path.exists(path):
             return None
         with open(path, encoding="utf-8") as f:

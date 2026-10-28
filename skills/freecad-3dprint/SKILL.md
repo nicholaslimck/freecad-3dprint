@@ -8,10 +8,10 @@ description: Design 3D-printable parts as parametric FreeCAD Python scripts on W
 You design parts by writing a parametric Python build script that FreeCAD runs
 headless. You never drive the GUI. You see your work through four channels:
 
-- `out/report.json` - checks, each finding has a stable `code`
-- `out/views/*_sheet.png` - contact sheet, plus a detail/section sheet per feature
-- `out/slice_report.json` - what the slicer thinks (when a slicer is configured)
-- `out/print_gate.json` - the only file that may say `printable: true`
+- `.out/report.json` - checks, each finding has a stable `code`
+- `.out/views/*_sheet.png` - contact sheet, plus a detail/section sheet per feature
+- `.out/slice_report.json` - what the slicer thinks (when a slicer is configured)
+- `.out/print_gate.json` - the only file that may say `printable: true`
 
 **`report.json` passing is not a print guarantee.** A part is finished only when
 the print gate says printable, which needs a clean slice or a recorded manual
@@ -24,13 +24,13 @@ params.json         every dimension, check expectation, coupon and print setting
 spec.md             requirements template, filled in with the user before modelling
 fcp/cadlib.py       helpers: rounded_box, hole, counterbore, countersink, teardrop_hole,
                     safe_fillet, chamfer_bed_edges, print_oriented, section, add_coupons,
-                    export_all (writes out/manifest.json), write_text ...
+                    export_all (writes .out/manifest.json), write_text ...
 fcp/analysis.py     pure-numpy mesh analysis: down-face regions, bridge/cantilever/support
-fcp/check_print.py  checks -> out/report.json (codes, metrics, relations, coupons)
-fcp/render_views.py 6 views + contact sheet, per-feature detail and section -> out/views/
-fcp/slice.py        PrusaSlicer (or custom) CLI wrapper -> out/slice_report.json
-fcp/gate.py         print gate -> out/print_gate.json
-fcp/doctor.py       environment, BOM and params check -> out/doctor.json
+fcp/check_print.py  checks -> .out/report.json (codes, metrics, relations, coupons)
+fcp/render_views.py 6 views + contact sheet, per-feature detail and section -> .out/views/
+fcp/slice.py        PrusaSlicer (or custom) CLI wrapper -> .out/slice_report.json
+fcp/gate.py         print gate -> .out/print_gate.json
+fcp/doctor.py       environment, BOM and params check -> .out/doctor.json
 fcp/run.ps1         build -> check -> render (-> slice) -> gate; exit 0 = printable
 ```
 References, read when needed:
@@ -51,7 +51,7 @@ References, read when needed:
    FreeCADCmd.exe fcp/slice.py          # optional
    FreeCADCmd.exe fcp/gate.py
    ```
-   FreeCADCmd's exit code isn't reliable and `__main__` guards can silently skip your entry point: read `out/*.json`. From WSL, call the Windows exe by its `/mnt/c/...` path and pass Windows-style paths (`wslpath -w`).
+   FreeCADCmd's exit code isn't reliable and `__main__` guards can silently skip your entry point: read `.out/*.json`. From WSL, call the Windows exe by its `/mnt/c/...` path and pass Windows-style paths (`wslpath -w`).
 
 ## Phase 1: Write the spec (gate: user confirms)
 Fill in `spec.md` and `params.json` with the user before writing geometry. Most bad
@@ -79,9 +79,9 @@ Edit `build.py`. One `build(params)` function that returns a shape or `{part_nam
 
 ## Phase 3: Build, check, look, fix (the loop)
 Run `fcp\run.ps1` (build, check, render, gate). After every run:
-1. Read `out/build_status.json`. If `ok: false`, fix using the traceback and the error table.
-2. Read `out/report.json`. **Every error must be fixed.** Every warning must be accepted in `params.checks.accept` with a reason and evidence, or fixed. Info goes in the hand-off.
-3. **Look at `out/views/<stem>_sheet.png`.** Compare it to the spec feature by feature. Red = steep overhang, amber = flat down face classified as cantilever/unsupported. If `render.features` is set, look at the detail/section sheet as well; the full sheet is too small for a latch.
+1. Read `.out/build_status.json`. If `ok: false`, fix using the traceback and the error table.
+2. Read `.out/report.json`. **Every error must be fixed.** Every warning must be accepted in `params.checks.accept` with a reason and evidence, or fixed. Info goes in the hand-off.
+3. **Look at `.out/views/<stem>_sheet.png`.** Compare it to the spec feature by feature. Red = steep overhang, amber = flat down face classified as cantilever/unsupported. If `render.features` is set, look at the detail/section sheet as well; the full sheet is too small for a latch.
 4. Commit after each run that passes.
 
 Read the finding codes before touching anything:
@@ -118,13 +118,13 @@ Rules for the loop:
              "date": "2026-10-28", "evidence": "layers 40-52 show the latch shelf supported by the tab"}}
   ```
   and note the same in `spec.md`. Do not claim printable without one of the two.
-- Read `out/slice_report.json` for print time, filament, support generation, out-of-bed and empty-layer warnings.
-- Read `out/print_gate.json`. `printable: false` lists exactly what is missing (untriaged warning, stale outputs, no slice/preview). `run.ps1` exits nonzero until it passes.
+- Read `.out/slice_report.json` for print time, filament, support generation, out-of-bed and empty-layer warnings.
+- Read `.out/print_gate.json`. `printable: false` lists exactly what is missing (untriaged warning, stale outputs, no slice/preview). `run.ps1` exits nonzero until it passes.
 - If the slicer shows an unsupported region the checks missed, treat it as a check bug: say so, fix the geometry first, then add the case to the triage table.
 
 ## Phase 5: Hand off
 Give the user a short summary:
-- The exact file to print or slice: the `slice_this` path in `out/manifest.json` (name it, do not say "the 3MF"). Also `out/<stem>.FCStd` to open in FreeCAD and `.step` for CAD.
+- The exact file to print or slice: the `slice_this` path in `.out/manifest.json` (name it, do not say "the 3MF"). Also `.out/<stem>.FCStd` to open in FreeCAD and `.step` for CAD.
 - The key parameters and how to change them (edit `params.json`, rerun `run.ps1`); `version` in params bumps the output names so old files cannot be mistaken for new.
 - Gate status: printable or not, with the reason. Report any accepted warnings with their evidence, and info items.
 - Slicer stats if sliced, and whether the preview was manual.
@@ -135,5 +135,5 @@ For a dimension change, edit `params.json` and rerun. For a new feature, add a
 function, call it in `build(params)`, and rerun. Update `spec.md` when the
 requirements change. If the user wants to edit the model by hand, hand them the
 generated `<stem>.FCStd`; do not start a parallel editable script, because the two
-will drift. Old outputs: `fcp\run.ps1 -Step clean` archives `out\` to
-`out\archive\<timestamp>\`.
+will drift. Old outputs: `fcp\run.ps1 -Step clean` archives `.out\` to
+`.out\archive\<timestamp>\`.

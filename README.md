@@ -10,10 +10,10 @@ The agent follows six steps, which are written out in [`SKILL.md`](skills/freeca
 
 1. It agrees a spec with you first: measured dimensions of everything the part mates with, fits, material, print orientation, whether supports are acceptable, how a latch will retain, and what a coupon will test. It won't start modelling until you confirm.
 2. It puts every dimension in `params.json` and writes one Python function per feature in `build.py`, with a single `build(params)` that coupons reuse.
-3. It runs the pipeline, reads `out/report.json`, looks at the rendered views, and fixes what's wrong. A flat downward face is classified as a bridge, cantilever or unsupported shelf from where the geometry is anchored. It may not loosen a check to make it pass without your agreement, and it stops to ask after three failed attempts at the same error.
+3. It runs the pipeline, reads `.out/report.json`, looks at the rendered views, and fixes what's wrong. A flat downward face is classified as a bridge, cantilever or unsupported shelf from where the geometry is anchored. It may not loosen a check to make it pass without your agreement, and it stops to ask after three failed attempts at the same error.
 4. If you have PrusaSlicer (or another slicer with a CLI), it slices the part with supports off and reads back print time, filament and warnings. Without a slicer, you look at the preview and record the check in `params.json`.
 5. A print gate decides whether the part is printable. It refuses while a warning is untriaged, an output is stale, or no slice/manual preview exists.
-6. It hands over the exact file to print from `out/manifest.json`, the FreeCAD file and a STEP, along with a summary and what to test-print first.
+6. It hands over the exact file to print from `.out/manifest.json`, the FreeCAD file and a STEP, along with a summary and what to test-print first.
 
 The checks in `report.json` cover:
 
@@ -113,7 +113,7 @@ FreeCADCmd.exe fcp/gate.py
 ```
 
 FreeCADCmd's exit code doesn't reliably reflect script errors (and it does not set
-`__name__ == "__main__"`), so each step writes its own status file to `out/`.
+`__name__ == "__main__"`), so each step writes its own status file to `.out/`.
 
 To slice with your printer's real settings, export a config from PrusaSlicer (File > Export > Export Config) and set `slicer.config` in `params.json`.
 
@@ -134,10 +134,10 @@ skills/freecad-3dprint/
       cadlib.py             geometry helpers: holes, counterbores, teardrops, fillets,
                             section/coupon, export + manifest, no-BOM writes
       analysis.py           pure-numpy flat-face regions and bridge/cantilever classification
-      check_print.py        printability checks -> out/report.json
-      render_views.py       orthographic, detail and section renders -> out/views/
-      slice.py              slicer CLI wrapper -> out/slice_report.json
-      gate.py               print gate -> out/print_gate.json
+      check_print.py        printability checks -> .out/report.json
+      render_views.py       orthographic, detail and section renders -> .out/views/
+      slice.py              slicer CLI wrapper -> .out/slice_report.json
+      gate.py               print gate -> .out/print_gate.json
       doctor.py             environment, BOM and params check
       run.ps1               pipeline runner
   tests/ (repo root)        pure-python tests and FreeCAD end-to-end cases
@@ -168,7 +168,7 @@ classification, slicer and gate helpers) have tests in `tests/`; run them with
 cases from the improvement handoff as throwaway projects through FreeCADCmd
 (cantilever shelf, two-tower bridge, disconnected hook, BOM, coupon section) and
 needs FreeCAD installed. Rendering is not pixel-tested. Bug reports with the
-contents of `out/build_status.json` or `out/report.json` are welcome.
+contents of `.out/build_status.json` or `.out/report.json` are welcome.
 
 ## License
 

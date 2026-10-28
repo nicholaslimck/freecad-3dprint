@@ -1,7 +1,7 @@
 """Printability checks. Run with:  FreeCADCmd.exe fcp\\check_print.py   (after build.py)
 
-Reads out/build_status.json, checks every part in PRINT orientation and writes
-out/report.json:
+Reads .out/build_status.json, checks every part in PRINT orientation and writes
+.out/report.json:
   {"pass": bool, "parts": [{"name", "errors": [], "warnings": [], "info": [], "metrics": {}}],
    "relations": [...], "coupon": [...]}
 Each finding is {"code", "text", ...detail}. codes are stable names so params.json

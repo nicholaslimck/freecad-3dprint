@@ -1,6 +1,6 @@
 """Environment check. Run with:  FreeCADCmd.exe fcp\\doctor.py   (run.ps1 -Step doctor)
 
-Writes out/doctor.json. Problems (FreeCAD missing, UTF-8 BOM in a project .py,
+Writes .out/doctor.json. Problems (FreeCAD missing, UTF-8 BOM in a project .py,
 unreadable params.json) make the check fail; missing numpy/matplotlib only warns,
 because report-only checks still work.
 
@@ -12,7 +12,7 @@ import os
 import sys
 
 PROJECT = os.environ.get("FCP_PROJECT") or os.getcwd()
-SKIP_DIRS = {".git", "out", "__pycache__", ".venv", "venv", "node_modules", "archive"}
+SKIP_DIRS = {".git", ".out", "out", "__pycache__", ".venv", "venv", "node_modules", "archive"}
 
 
 def bom_files(root):
@@ -72,8 +72,8 @@ def main():
     result["ok"] = not result["problems"]
     print("FCP_PROJECT =", PROJECT)
     print("FCP_SLICER  =", os.environ.get("FCP_SLICER", "(unset)"))
-    os.makedirs(os.path.join(PROJECT, "out"), exist_ok=True)
-    with open(os.path.join(PROJECT, "out", "doctor.json"), "w", encoding="utf-8", newline="\n") as f:
+    os.makedirs(os.path.join(PROJECT, ".out"), exist_ok=True)
+    with open(os.path.join(PROJECT, ".out", "doctor.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(result, f, indent=2)
     print("DOCTOR", "OK" if result["ok"] else "FAILED")
     for p in result["problems"]:
@@ -84,5 +84,6 @@ def main():
 
 if not os.environ.get("FCP_NO_MAIN"):
     main()  # FreeCADCmd does not set __name__ == "__main__"
+
 
 

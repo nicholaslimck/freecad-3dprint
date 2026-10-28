@@ -59,7 +59,7 @@ List the features that become overhangs when flipped.>
 | Pass/fail | <e.g. lip flexes 20x without cracking; snap holds 5 N> |
 
 ## Warning triage
-<Every warning in out/report.json needs a row. Accepted warnings also need a
+<Every warning in .out/report.json needs a row. Accepted warnings also need a
 matching entry in params.checks.accept (code + region_center_mm + reason +
 evidence), or the print gate will not pass.>
 

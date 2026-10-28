@@ -1,4 +1,5 @@
 # pipeline output
+.out/
 out/
 *.gcode
 *.FCStd1

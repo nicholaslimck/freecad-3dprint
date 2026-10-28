@@ -1,7 +1,7 @@
 """Headless orthographic renders. Run with:  FreeCADCmd.exe fcp\\render_views.py
 
-Writes, per part, out/views/<stem>_<view>.png and a contact sheet
-out/views/<stem>_sheet.png. Views are in PRINT orientation (Z up = away from
+Writes, per part, .out/views/<stem>_<view>.png and a contact sheet
+.out/views/<stem>_sheet.png. Views are in PRINT orientation (Z up = away from
 the bed). Steep overhangs are red; flat down faces classified as cantilever or
 unsupported are amber, so the bottom view doubles as a support map.
 
@@ -141,10 +141,25 @@ def render_part(name, points, facets, cat, bbox, outdir, views=None, tag="", she
     return written
 
 
+def _check_print_module():
+    """Import check_print without letting its main() run again (FCP_NO_MAIN guard)."""
+    previous = os.environ.get("FCP_NO_MAIN")
+    os.environ["FCP_NO_MAIN"] = "1"
+    try:
+        import check_print
+    finally:
+        if previous is None:
+            os.environ.pop("FCP_NO_MAIN", None)
+        else:
+            os.environ["FCP_NO_MAIN"] = previous
+    return check_print
+
+
 def categories(shape, P, points, facets):
     """0 normal, 1 steep overhang, 2 flat down face that is a cantilever or unsupported."""
     from analysis import facet_arrays, flat_down_mask, overhang_mask
-    from check_print import classify_down_faces
+
+    classify_down_faces = _check_print_module().classify_down_faces
 
     pr = P.get("print", {})
     cent, nrm, area = facet_arrays(points, facets)
