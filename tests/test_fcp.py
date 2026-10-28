@@ -22,6 +22,7 @@ from analysis import (  # noqa: E402
 )
 from slice import fill, fresh_gcode  # noqa: E402
 from gate import evaluate  # noqa: E402
+from release import release  # noqa: E402
 
 
 def _tilted(deg_from_vertical, z):
@@ -283,3 +284,48 @@ def test_gate_rejects_slice_of_a_different_file():
     result = evaluate(P, report, render, manifest, sliced)
     assert not result["printable"]
     assert any("different file" in r for r in result["reasons"])
+
+
+# ---------------------------------------------------------------- release
+def _release_fixture(tmp_path, printable=True, stale=False):
+    project = tmp_path / "proj"
+    workspace = project / ".freecad-3dprint"
+    out = workspace / ".out"
+    out.mkdir(parents=True)
+    params = {"name": "case", "version": 3,
+              "print": {"rotate": [], "supports_allowed": False,
+                        "nozzle": 0.4, "layer_height": 0.2}}
+    (workspace / "params.json").write_text(json.dumps(params))
+    for name in ("part.step", "part_print.3mf", "part_print.stl", "case_v3.FCStd"):
+        (out / name).write_text(name)
+    manifest = {"parts": [{"name": "part", "step": str(out / "part.step"),
+                           "3mf": str(out / "part_print.3mf"),
+                           "stl": str(out / "part_print.stl")}],
+                "fcstd": str(out / "case_v3.FCStd")}
+    gate = {"printable": printable,
+            "design_hash": "old" if stale else design_hash(params),
+            "checks": {"preview": {"mode": "slicer"}}}
+    (out / "manifest.json").write_text(json.dumps(manifest))
+    (out / "print_gate.json").write_text(json.dumps(gate))
+    (out / "report.json").write_text(json.dumps({"pass": True, "parts": []}))
+    return workspace
+
+
+def test_release_copies_verified_files(tmp_path):
+    workspace = _release_fixture(tmp_path)
+    status = release(str(workspace))
+    assert status["ok"], status["reasons"]
+    dest = tmp_path / "proj" / "print" / "case_v3"
+    for name in ("part_print.3mf", "part_print.stl", "part.step", "case_v3.FCStd",
+                 "report.json", "print_gate.json", "README.md", "release.json"):
+        assert (dest / name).exists(), name
+    record = json.loads((dest / "release.json").read_text())
+    params = json.loads((workspace / "params.json").read_text())
+    assert record["design_hash"] == design_hash(params)
+
+
+def test_release_refuses_unverified_or_stale(tmp_path):
+    unverified = _release_fixture(tmp_path / "unverified", printable=False)
+    assert not release(str(unverified))["ok"]
+    stale = _release_fixture(tmp_path / "stale", stale=True)
+    assert not release(str(stale))["ok"]

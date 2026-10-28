@@ -94,14 +94,17 @@ If FreeCAD isn't found, set `$env:FREECAD_CMD` to the full path of `FreeCADCmd.e
 The full pipeline, run from inside the workspace:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File fcp\run.ps1          # build, check, render, gate
-powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Slice   # same, then slice
+powershell -ExecutionPolicy Bypass -File fcp\run.ps1           # build, check, render, gate
+powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Slice    # same, then slice
+powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step release   # verified files -> print/<stem>/
 ```
 
 `run.ps1` exits 0 only when the print gate says the part is printable. Until a
 slice (supports off) or a recorded manual preview exists, it exits 1 and names
-what is missing. The individual steps run and print their status first, so you can
-still work the check/render loop with `-Step check` or `-Step render`.
+what is missing. Once it passes, `-Step release` copies the verified STL/3MF,
+STEP, FCStd, report and gate into `<project>/print/<stem>/` with a README and
+hashes. That folder is the deliverable and is safe to commit; `.out/` is
+regenerable and ignored by the workspace `.gitignore`.
 
 Without PowerShell, set `FCP_PROJECT` to the workspace (`.freecad-3dprint`) and run the scripts in order from inside it:
 
@@ -139,6 +142,7 @@ skills/freecad-3dprint/
       render_views.py       orthographic, detail and section renders -> .out/views/
       slice.py              slicer CLI wrapper -> .out/slice_report.json
       gate.py               print gate -> .out/print_gate.json
+      release.py            verified files -> <project>/print/<stem>/
       doctor.py             environment, BOM and params check
       run.ps1               pipeline runner
   tests/ (repo root)        pure-python tests and FreeCAD end-to-end cases
@@ -149,15 +153,23 @@ skills/freecad-3dprint/
 ```
 <project>/
   .freecad-3dprint/   created by the skill; the working directory for every step
+    .gitignore                 ignores .out/ (sources are committed)
     build.py                   features and build(params)
     params.json                dimensions, checks, coupon, print settings
     spec.md                    requirements and triage
-    fcp/                       checks, renders, slicer, gate, runner
+    fcp/                       checks, renders, slicer, gate, release, runner
     .out/                      generated: reports, renders, STL/3MF, manifest, gate
+  print/
+    <name>_v3/                 released after the gate passes; safe to commit
+      <name>_v3_print.3mf
+      <name>_v3.step
+      <name>_v3.FCStd
+      report.json, print_gate.json, release.json, README.md
 ```
 
 The project folder itself keeps whatever else belongs to the part: datasheets,
-photos, the user's own notes.
+photos, the user's own notes. `run.ps1 -Step release` refuses unless the print
+gate says the current design is printable.
 
 ## Limitations
 
@@ -178,7 +190,7 @@ OrcaSlicer and Bambu Studio CLI flags change between versions. Check them agains
 
 ## Status
 
-This is an early release (0.2.0). The pure-Python parts (overhang maths, support
+This is an early release (0.3.0). The pure-Python parts (overhang maths, support
 classification, slicer and gate helpers) have tests in `tests/`; run them with
 `pip install numpy pytest && pytest`. `tests/e2e_cases.py` builds the failure
 cases from the improvement handoff as throwaway projects through FreeCADCmd

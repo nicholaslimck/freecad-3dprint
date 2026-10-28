@@ -82,6 +82,7 @@ will not pass.>
 - [ ] report.json passes with every warning triaged
 - [ ] bbox matches checks.bbox_mm
 - [ ] print_gate.json says printable
+- [ ] released to print/<name>_v<N>/ and committed with the workspace sources
 - [ ] <functional criterion, e.g. "M3 screw head sits flush">
 - [ ] <coupon printed and measured, if fits are tight>
 

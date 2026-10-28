@@ -5,6 +5,7 @@
   powershell -ExecutionPolicy Bypass -File fcp\run.ps1             # build, check, render, gate
   powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Slice      # ...and slice
   powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step gate
+  powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step release
   powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step doctor
   powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step clean
 .NOTES
@@ -14,7 +15,7 @@
   recorded manual supports-off preview is NOT printable, so the run fails at the gate.
 #>
 param(
-  [ValidateSet("all", "build", "check", "render", "slice", "gate", "doctor", "clean")]
+  [ValidateSet("all", "build", "check", "render", "slice", "gate", "release", "doctor", "clean")]
   [string]$Step = "all",
   [switch]$Slice
 )
@@ -70,6 +71,15 @@ if ($Step -eq "doctor") {
   Invoke-FC (Join-Path $PSScriptRoot "doctor.py")
   $d = Read-Status "doctor.json"
   if (-not $d -or -not $d.ok) { Write-Host "DOCTOR FAILED - see .out\doctor.json"; exit 1 }
+  exit 0
+}
+
+if ($Step -eq "release") {
+  Remove-Item (Join-Path $Out "release_status.json") -ErrorAction SilentlyContinue
+  Invoke-FC (Join-Path $PSScriptRoot "release.py")
+  $rel = Read-Status "release_status.json"
+  if (-not $rel -or -not $rel.ok) { Write-Host "RELEASE REFUSED - see .out\release_status.json"; exit 1 }
+  Write-Host ("released to " + $rel.dest)
   exit 0
 }
 

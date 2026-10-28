@@ -161,7 +161,8 @@ def evaluate(P, report, render, manifest, slice_report):
                 "evidence} in params.json (all fields are required)")
 
     return {"printable": not reasons, "reasons": reasons, "untriaged": untriaged,
-            "checks": checks, "generated": time.strftime("%Y-%m-%dT%H:%M:%S")}
+            "checks": checks, "design_hash": digest,
+            "generated": time.strftime("%Y-%m-%dT%H:%M:%S")}
 
 
 def main():

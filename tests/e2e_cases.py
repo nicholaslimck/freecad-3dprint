@@ -245,6 +245,13 @@ def main(argv):
     a.run(os.path.join("fcp", "gate.py"))
     gate = a.json("print_gate.json")
     expect(gate["printable"], "gate should be printable after triage + preview: %s" % gate["reasons"])
+    a.run(os.path.join("fcp", "release.py"))
+    released = a.json("release_status.json")
+    expect(released and released["ok"], "release must copy a printable design")
+    dest = os.path.join(a.dir, "print", "cantilever_v1")
+    expect(os.path.isdir(dest), "release folder missing")
+    expect(os.path.exists(os.path.join(dest, "README.md")), "release README missing")
+    expect(os.path.exists(os.path.join(dest, "release.json")), "release record missing")
 
     a.p["checks"]["accept"][0]["code"] = "flat_bridge"  # false bridge claim
     a.write_params(a.p)
