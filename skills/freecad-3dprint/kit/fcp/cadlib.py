@@ -392,7 +392,6 @@ def export_all(result, P):
         rec = {"name": name, "stem": stem,
                "purpose": meta.get(name, {}).get("purpose", ""),
                "step": step, "stl": stl, "slice_this": stl,
-               "files": {"step": step, "stl": stl},
                "sha256": {"step": sha256_file(step), "stl": sha256_file(stl)},
                "facets": mesh.CountFacets}
         try:
@@ -400,7 +399,6 @@ def export_all(result, P):
             mesh.write(tmf)
             rec["3mf"] = tmf
             rec["slice_this"] = tmf
-            rec["files"]["3mf"] = tmf
             rec["sha256"]["3mf"] = sha256_file(tmf)
         except Exception as exc:  # noqa: BLE001 - older FreeCAD builds lack 3MF
             rec["3mf_error"] = str(exc)
@@ -413,10 +411,16 @@ def export_all(result, P):
     doc.saveAs(fcstd)
     App.closeDocument(doc.Name)
 
+    # Hash the script, every kit module and the design params: editing any of
+    # them invalidates the exports, not just params.json.
     sources = {}
-    for rel in ("build.py",):
-        path = os.path.join(project_dir(), rel)
+    paths = [os.path.join(project_dir(), "build.py")]
+    fcp = os.path.join(project_dir(), "fcp")
+    if os.path.isdir(fcp):
+        paths += [os.path.join(fcp, n) for n in sorted(os.listdir(fcp)) if n.endswith(".py")]
+    for path in paths:
         if os.path.exists(path):
+            rel = os.path.relpath(path, project_dir()).replace("\\", "/")
             sources[rel] = sha256_file(path)
     sources["design"] = design_hash(P)
     manifest = {

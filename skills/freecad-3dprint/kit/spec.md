@@ -60,8 +60,10 @@ List the features that become overhangs when flipped.>
 
 ## Warning triage
 <Every warning in .out/report.json needs a row. Accepted warnings also need a
-matching entry in params.checks.accept (code + region_center_mm + reason +
-evidence), or the print gate will not pass.>
+matching entry in params.checks.accept (code + reason + evidence; add
+region_center_mm for regional findings such as flat_* and overhang_steep,
+omit it for part-wide findings such as small_bed_contact), or the print gate
+will not pass.>
 
 | Warning code | Region | Classification | Evidence | Accepted? | Mitigation |
 |---|---|---|---|---|---|

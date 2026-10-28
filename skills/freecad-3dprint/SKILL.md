@@ -87,7 +87,7 @@ Edit `build.py`. One `build(params)` function that returns a shape or `{part_nam
 Run `fcp\run.ps1` (build, check, render, gate). After every run:
 1. Read `.out/build_status.json`. If `ok: false`, fix using the traceback and the error table.
 2. Read `.out/report.json`. **Every error must be fixed.** Every warning must be accepted in `params.checks.accept` with a reason and evidence, or fixed. Info goes in the hand-off.
-3. **Look at `.out/views/<stem>_sheet.png`.** Compare it to the spec feature by feature. Red = steep overhang, amber = flat down face classified as cantilever/unsupported. If `render.features` is set, look at the detail/section sheet as well; the full sheet is too small for a latch.
+3. **Look at `.out/views/<stem>_sheet.png`.** Compare it to the spec feature by feature. Red = steep overhang, amber = flat down face classified as cantilever/unsupported. If `render.features` is set, look at the detail/section sheet as well; the full sheet is too small for a latch. Feature `bbox_mm` values are in print orientation (after `print.rotate`), not design coordinates.
 4. Commit after each run that passes.
 
 Read the finding codes before touching anything:
@@ -113,7 +113,7 @@ Rules for the loop:
    "evidence": "report shows anchors at both ends; coupon printed clean",
    "accepted_by": "user", "date": "2026-10-28"}
   ```
-  A warning without evidence does not satisfy the gate. Never accept a warning by writing "it is a bridge" without anchor evidence in the report.
+  A warning without evidence does not satisfy the gate. A regional warning (`flat_*`, `overhang_steep`) needs `region_center_mm`; a part-wide warning (`small_bed_contact`, `tall_thin`, `open_shell`, coupon findings) must omit it. Never accept a warning by writing "it is a bridge" without anchor evidence in the report.
 - If the same error survives three attempts, stop. Explain what you tried and ask the user. Don't thrash.
 
 ## Phase 4: Slice and gate (mandatory before calling it done)

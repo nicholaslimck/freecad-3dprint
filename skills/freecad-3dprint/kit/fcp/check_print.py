@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analysis import (  # noqa: E402
     bed_contact_area,
     classify_regions,
+    design_hash,
     facet_arrays,
     flat_down_mask,
     group_regions,
@@ -129,7 +130,7 @@ def wall_thickness_scan(shape, min_wall, per_face=4, max_samples=800):
                 lo = mid
             else:
                 hi = mid
-        th = round(lo, 3)
+        th = round((lo + hi) / 2.0, 3)  # the exit is between the last inside and first outside point
         found = th if found is None else min(found, th)
         if th < min_wall:
             thin.append({"thickness_mm": th, "at_mm": [round(p.x, 2), round(p.y, 2), round(p.z, 2)]})
@@ -172,16 +173,20 @@ def _expected(value, name, default=1):
 
 
 def _bbox_spec(chk, name, multi):
-    """Expected bbox for this part, plus an ambiguity warning for list form with many parts."""
+    """Expected bbox for this part, plus a (code, message) warning if the spec cannot be applied."""
     spec = chk.get("bbox_mm")
     if not spec:
-        return None, None
+        return None, None, None
     if isinstance(spec, dict):
-        return spec.get(name), None
+        if name not in spec:
+            return None, "bbox_missing", (
+                "checks.bbox_mm has no entry for part '%s'; add one or the scale/axis check is "
+                "skipped" % name)
+        return spec[name], None, None
     if multi:
-        return spec, ("checks.bbox_mm is a single box applied to every part; "
-                      "use {\"<part name>\": [x, y, z]}")
-    return spec, None
+        return spec, "bbox_ambiguous", (
+            "checks.bbox_mm is a single box applied to every part; use {\"<part name>\": [x, y, z]}")
+    return spec, None, None
 
 
 def _declared(P, region):
@@ -244,9 +249,11 @@ def _region_findings(P, regions):
                     % (r["area_mm2"], where, decl.get("code")), region=ref)))
             else:
                 out.append(("warning", finding(
-                    "flat_unsupported", "%.1f mm2 horizontal down face (%s) has no support below and no "
-                    "anchor; print it with supports or change the design" % (r["area_mm2"], where),
-                    region=ref)))
+                    "flat_unsupported",
+                    "%.1f mm2 horizontal down face (%s): no anchor, and only %.0f%% of it has "
+                    "material within %.1f mm below; print it with supports or change the design"
+                    % (r["area_mm2"], where, 100 * r["support_fraction"],
+                       P.get("print", {}).get("support_gap_mm", 0.6)), region=ref)))
     return out
 
 
@@ -292,9 +299,9 @@ def check_part(rec, P, designs, multi):
                          "closed part" % (n_shells, n_solids)))
 
     # --- expected design dimensions
-    exp_bbox, ambiguous = _bbox_spec(chk, rec["name"], multi)
-    if ambiguous:
-        W.append(finding("bbox_ambiguous", ambiguous))
+    exp_bbox, bbox_code, bbox_note = _bbox_spec(chk, rec["name"], multi)
+    if bbox_note:
+        W.append(finding(bbox_code, bbox_note))
     if exp_bbox:
         bb = design.BoundBox
         got = [bb.XLength, bb.YLength, bb.ZLength]
@@ -354,11 +361,13 @@ def check_part(rec, P, designs, multi):
     M["overhang_area_mm2"] = round(float(area[steep].sum()), 2)
     M["flat_downward_area_mm2"] = round(float(area[flat].sum()), 2)
     if M["overhang_area_mm2"] > 1.0:
+        regions = group_regions(cent, area, steep)
+        extra = {"regions": regions}
+        if regions:
+            extra["region"] = regions[0]  # the acceptance record needs a location to match
         msg = finding("overhang_steep",
                       "%.1f mm2 of overhang steeper than %s deg; regions: %s"
-                      % (M["overhang_area_mm2"], pr.get("max_overhang_deg", 45),
-                         group_regions(cent, area, steep)),
-                      regions=group_regions(cent, area, steep))
+                      % (M["overhang_area_mm2"], pr.get("max_overhang_deg", 45), regions), **extra)
         (W if pr.get("supports_allowed") else E).append(msg)
     if M["flat_downward_area_mm2"] > 1.0:
         try:
@@ -443,10 +452,10 @@ def check_relations(P, designs, report):
                 row["problems"].append("common() failed: %s" % exc)
         row["ok"] = not row["problems"]
         if not row["ok"]:
+            row["code"] = "relation_failed"
             row["text"] = "; ".join(row["problems"])
         rows.append(row)
     report["relations"] = rows
-    return rows
 
 
 def check_coupon(P, report):
@@ -468,8 +477,9 @@ def check_coupon(P, report):
                            "reproduce the real wall, lip or flex. Cut the coupon out of the part."))
     prefix = c.get("name") or "coupon"
     if not any(n == prefix or n.startswith(prefix + "_") for n in names):
-        out.append(finding("coupon_missing", "coupon is enabled but no exported part is named %s*; "
-                           "check build.py" % prefix))
+        out.append(finding("coupon_not_section",
+                           "coupon is enabled but no exported part is named %s*; check that "
+                           "build.py calls add_coupons" % prefix))
     return out
 
 
@@ -478,7 +488,7 @@ def main():
     from cadlib import load_params, read_json, write_json
 
     P = load_params()
-    report = {"pass": False, "parts": [], "relations": []}
+    report = {"pass": False, "parts": [], "relations": [], "design_hash": design_hash(P)}
     try:
         status = read_json("build_status.json")
         if not status or not status.get("ok"):

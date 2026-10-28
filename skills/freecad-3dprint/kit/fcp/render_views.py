@@ -8,6 +8,8 @@ unsupported are amber, so the bottom view doubles as a support map.
 params.render.features[] adds a close-up sheet and optional section per feature:
   {"name": "latch", "bbox_mm": [[x0,y0,z0],[x1,y1,z1]],
    "section": {"axis": "y", "at_mm": 12.0}}     # keeps the low side of the plane
+The feature bbox is in PRINT orientation (after print.rotate), not design coordinates:
+use the numbers from the sheet or from report.metrics.print_bbox_mm.
 
 Uses numpy + matplotlib (bundled with FreeCAD on Windows). Painter's-algorithm
 rendering: fine for checking shape and feature placement, not photoreal.
@@ -105,7 +107,7 @@ def render_view(ax, tri, cat, eye, up_hint, title=""):
     ax.grid(True, linewidth=0.3, alpha=0.4)
 
 
-def render_part(name, points, facets, cat, bbox, outdir, views=None, tag="", sheet=True):
+def render_part(name, points, facets, cat, bbox, outdir, views=None, tag=""):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -124,20 +126,19 @@ def render_part(name, points, facets, cat, bbox, outdir, views=None, tag="", she
         fig.savefig(p, bbox_inches="tight")
         plt.close(fig)
         written.append(p)
-    if sheet:
-        n = len(views)
-        cols = 2 if n <= 4 else 3
-        rows = int(math.ceil(n / float(cols)))
-        fig, axes = plt.subplots(rows, cols, figsize=(7.5 * cols, 5 * rows), dpi=110, squeeze=False)
-        for ax, (view, (eye, up)) in zip(axes.flat, views.items()):
-            render_view(ax, tri, cat, eye, up, view)
-        for ax in list(axes.flat)[len(views):]:
-            ax.axis("off")
-        fig.suptitle("%s   %s   red = overhang, amber = unsupported shelf" % (name, dims), fontsize=11)
-        p = os.path.join(outdir, "%s%s_sheet.png" % (name, tag))
-        fig.savefig(p, bbox_inches="tight")
-        plt.close(fig)
-        written.insert(0, p)
+    n = len(views)
+    cols = 2 if n <= 4 else 3
+    rows = int(math.ceil(n / float(cols)))
+    fig, axes = plt.subplots(rows, cols, figsize=(7.5 * cols, 5 * rows), dpi=110, squeeze=False)
+    for ax, (view, (eye, up)) in zip(axes.flat, views.items()):
+        render_view(ax, tri, cat, eye, up, view)
+    for ax in list(axes.flat)[len(views):]:
+        ax.axis("off")
+    fig.suptitle("%s   %s   red = overhang, amber = unsupported shelf" % (name, dims), fontsize=11)
+    p = os.path.join(outdir, "%s%s_sheet.png" % (name, tag))
+    fig.savefig(p, bbox_inches="tight")
+    plt.close(fig)
+    written.insert(0, p)
     return written
 
 
@@ -202,10 +203,11 @@ def feature_shape(shape, feat):
 
 def main():
     import Part
+    from analysis import design_hash
     from cadlib import load_params, mesh_from_shape, out_dir, print_oriented, read_json, write_json
 
     P = load_params()
-    result = {"ok": False, "images": [], "warnings": []}
+    result = {"ok": False, "images": [], "warnings": [], "design_hash": design_hash(P)}
     try:
         status = read_json("build_status.json")
         if not status or not status.get("ok"):

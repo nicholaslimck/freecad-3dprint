@@ -99,14 +99,12 @@ def build(params):
 
 
 def find_freecad():
-    for cand in (os.environ.get("FREECAD_CMD"),):
-        if cand and os.path.exists(cand):
-            return cand
-    for pat in (r"C:\Program Files\FreeCAD*\bin\FreeCADCmd.exe",
-                r"C:\Program Files\FreeCAD*\bin\freecadcmd.exe"):
-        hits = sorted(glob.glob(pat))
-        if hits:
-            return hits[-1]
+    cand = os.environ.get("FREECAD_CMD")
+    if cand and os.path.exists(cand):
+        return cand
+    hits = sorted(glob.glob(r"C:\Program Files\FreeCAD*\bin\FreeCADCmd.exe"))
+    if hits:
+        return hits[-1]
     raise SystemExit("FreeCADCmd.exe not found; set $env:FREECAD_CMD")
 
 

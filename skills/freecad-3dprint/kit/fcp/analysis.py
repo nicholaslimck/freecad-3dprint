@@ -195,14 +195,13 @@ def _anchors(points, edges, center, contains, out_offset=0.25, below=0.3,
             n = nxy if float(np.dot(mid[:2] - c, nxy)) >= 0 else -nxy
             probes.append([mid[0] + n[0] * out_offset, mid[1] + n[1] * out_offset, mid[2] - below])
     if not probes:
-        return [], 0
+        return []
     if len(probes) > max_probes:
         idx = np.linspace(0, len(probes) - 1, max_probes).astype(int)
         probes = [probes[i] for i in idx]
     inside = np.asarray(contains(np.asarray(probes, float)), bool)
-    anchors = [{"at_mm": [round(float(x), 2) for x in probed[:3]]}
-               for probed, ok in zip(probes, inside) if ok]
-    return anchors, len(probes)
+    return [{"at_mm": [round(float(x), 2) for x in probed[:3]]}
+            for probed, ok in zip(probes, inside) if ok]
 
 
 def classify_regions(points, facets, areas, mask, contains, support_gap=0.6, bed_z=0.0,
@@ -230,7 +229,7 @@ def classify_regions(points, facets, areas, mask, contains, support_gap=0.6, bed
         span = float(max(hi[0] - lo[0], hi[1] - lo[1]))
 
         edges = _boundary_edges(facets, fac_idx)
-        anchors, n_probe = _anchors(pts, edges, center, contains)
+        anchors = _anchors(pts, edges, center, contains)
 
         probe = tri.mean(axis=1) - np.array([0.0, 0.0, support_gap])
         below = np.asarray(contains(probe), bool)
@@ -260,9 +259,7 @@ def classify_regions(points, facets, areas, mask, contains, support_gap=0.6, bed
             "span_mm": round(span, 2),
             "anchors_mm": [an["at_mm"] for an in anchors][:12],
             "anchor_count": len(anchors),
-            "enclosed": bool(enclosed),
             "support_fraction": round(support_fraction, 3),
-            "probes": n_probe,
             "facets": fac_idx,
         })
     out.sort(key=lambda r: -r["area_mm2"])

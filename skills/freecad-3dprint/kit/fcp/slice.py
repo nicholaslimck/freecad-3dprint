@@ -21,6 +21,8 @@ import re
 import subprocess
 import time
 
+from analysis import design_hash
+
 PROJECT = os.environ.get("FCP_PROJECT") or os.getcwd()
 OUT = os.path.join(PROJECT, ".out")
 
@@ -102,9 +104,7 @@ def update_manifest(report):
         rec["slicer"] = {"ok": part.get("returncode") == 0 and bool(part.get("gcode")),
                          "gcode": part.get("gcode"),
                          "model_sha256": part.get("model_sha256"),
-                         "stats": part.get("stats", {}),
-                         "warnings": part.get("warnings", [])}
-    manifest["sliced"] = report.get("ok", False)
+                         "stats": part.get("stats", {})}
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(manifest, f, indent=2)
 
@@ -115,7 +115,8 @@ def main():
     with open(os.path.join(OUT, "build_status.json"), encoding="utf-8") as f:
         status = json.load(f)
     cfg = P.get("slicer", {})
-    report = {"ok": False, "parts": []}
+    report = {"ok": False, "parts": [], "design_hash": design_hash(P),
+              "supports_allowed": bool(P.get("print", {}).get("supports_allowed"))}
     try:
         exe = find_exe(cfg)
         config = cfg.get("config", "")

@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skills", "free
 
 from analysis import (  # noqa: E402
     classify_regions,
+    design_hash,
     facet_arrays,
     flat_down_mask,
     overhang_mask,
@@ -203,42 +204,82 @@ CANTILEVER_WARNING = {
     "text": "shelf anchored on one side",
     "region": {"center_mm": [5.0, 0.0, 10.0], "span_mm": 20.0, "area_mm2": 80.0},
 }
-REPORT = {"pass": True, "parts": [{"name": "part", "errors": [], "warnings": [CANTILEVER_WARNING],
-                                   "info": []}]}
-RENDER = {"ok": True, "images": ["sheet.png"], "warnings": []}
-MANIFEST = {"sources": {}, "parts": [{"name": "part", "sha256": {"3mf": "abc"},
-                                      "files": {}}]}
+PART_WIDE_WARNING = {"code": "small_bed_contact", "text": "small bed contact"}
+PREVIEW = {"done": True, "supports_off": True, "by": "user", "date": "2026-10-28",
+           "evidence": "layers 40-52 checked"}
+ACCEPT = {"code": "flat_cantilever", "region_center_mm": [5.0, 0.0, 10.0],
+          "reason": "intentional", "evidence": "coupon printed clean"}
+
+
+def _gate_fixture(accept=None, preview=None, warnings=None):
+    P = _gate_params(accept, preview)
+    digest = design_hash(P)
+    report = {"pass": True, "design_hash": digest,
+              "parts": [{"name": "part", "errors": [], "info": [],
+                         "warnings": [CANTILEVER_WARNING] if warnings is None else warnings}]}
+    render = {"ok": True, "images": ["sheet.png"], "warnings": [], "design_hash": digest}
+    manifest = {"sources": {"design": digest},
+                "parts": [{"name": "part", "sha256": {"3mf": "abc"}}]}
+    return P, report, render, manifest
 
 
 def test_gate_refuses_untriaged_warning_and_missing_preview():
-    result = evaluate(_gate_params(), REPORT, RENDER, MANIFEST, None)
+    P, report, render, manifest = _gate_fixture()
+    result = evaluate(P, report, render, manifest, None)
     assert not result["printable"]
     assert result["untriaged"] and result["untriaged"][0]["code"] == "flat_cantilever"
     assert any("not print-verified" in r for r in result["reasons"])
 
 
 def test_gate_accepts_warning_with_evidence_and_manual_preview():
-    accept = [{"code": "flat_cantilever", "region_center_mm": [5.0, 0.0, 10.0],
-               "reason": "intentional", "evidence": "coupon printed clean"}]
-    preview = {"done": True, "supports_off": True, "by": "user", "date": "2026-10-28"}
-    result = evaluate(_gate_params(accept, preview), REPORT, RENDER, MANIFEST, None)
+    P, report, render, manifest = _gate_fixture([ACCEPT], PREVIEW)
+    result = evaluate(P, report, render, manifest, None)
     assert result["printable"], result["reasons"]
     assert result["checks"]["preview"]["mode"] == "manual"
 
 
 def test_gate_acceptance_needs_evidence():
-    accept = [{"code": "flat_cantilever", "region_center_mm": [5.0, 0.0, 10.0],
-               "reason": "intentional"}]
-    result = evaluate(_gate_params(accept, {"done": True, "supports_off": True}),
-                      REPORT, RENDER, MANIFEST, None)
+    partial = dict(ACCEPT)
+    partial.pop("evidence")
+    P, report, render, manifest = _gate_fixture([partial], PREVIEW)
+    result = evaluate(P, report, render, manifest, None)
     assert not result["printable"]
     assert "evidence" in result["untriaged"][0].get("accept_error", "")
 
 
+def test_gate_blanket_acceptance_does_not_cover_a_region():
+    blanket = {k: v for k, v in ACCEPT.items() if k != "region_center_mm"}
+    P, report, render, manifest = _gate_fixture([blanket], PREVIEW)
+    assert not evaluate(P, report, render, manifest, None)["printable"]
+
+    # ...but it does cover a warning with no region of its own
+    P, report, render, manifest = _gate_fixture(
+        [{"code": "small_bed_contact", "reason": "brim", "evidence": "brim in profile"}],
+        PREVIEW, warnings=[PART_WIDE_WARNING])
+    assert evaluate(P, report, render, manifest, None)["printable"]
+
+
+def test_gate_manual_preview_needs_by_date_and_evidence():
+    P, report, render, manifest = _gate_fixture([ACCEPT], {"done": True, "supports_off": True})
+    result = evaluate(P, report, render, manifest, None)
+    assert not result["printable"]
+    assert any("print-verified" in r for r in result["reasons"])
+
+
+def test_gate_rejects_stale_report_and_render():
+    P, report, render, manifest = _gate_fixture([ACCEPT], PREVIEW)
+    report["design_hash"] = "old"
+    render["design_hash"] = "old"
+    result = evaluate(P, report, render, manifest, None)
+    assert not result["printable"]
+    assert any("different build" in r for r in result["reasons"])
+
+
 def test_gate_rejects_slice_of_a_different_file():
-    report = {"pass": True, "parts": [{"name": "part", "errors": [], "warnings": [], "info": []}]}
-    sliced = {"ok": True, "parts": [{"name": "part", "gcode": "p.gcode",
-                                     "model_sha256": "stale", "warnings": []}]}
-    result = evaluate(_gate_params(), report, RENDER, MANIFEST, sliced)
+    P, report, render, manifest = _gate_fixture([], PREVIEW, warnings=[])
+    sliced = {"ok": True, "design_hash": design_hash(P), "supports_allowed": False,
+              "parts": [{"name": "part", "gcode": "p.gcode",
+                         "model_sha256": "stale", "warnings": []}]}
+    result = evaluate(P, report, render, manifest, sliced)
     assert not result["printable"]
     assert any("different file" in r for r in result["reasons"])

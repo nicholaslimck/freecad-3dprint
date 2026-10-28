@@ -75,6 +75,7 @@ if ($Step -eq "doctor") {
 
 if ($Step -in @("all", "build")) {
   Remove-Item (Join-Path $Out "build_status.json") -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $Out "slice_report.json") -ErrorAction SilentlyContinue  # new export invalidates the slice
   Invoke-FC (Join-Path $Project "build.py")
   $s = Read-Status "build_status.json"
   if (-not $s -or -not $s.ok) { Write-Host "BUILD FAILED - see .out\build_status.json"; exit 1 }

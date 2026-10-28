@@ -59,28 +59,35 @@ def _accept(finding, accept):
     code = finding.get("code")
     region = finding.get("region") or {}
     center = region.get("center_mm")
+    note = None
     for item in accept:
         if item.get("code") != code:
             continue
         declared = item.get("region_center_mm")
-        if declared and center:
+        if center:
+            if not declared:
+                continue  # a regional warning needs a regional acceptance, not a blanket one
             tol = max(5.0, 0.25 * float(region.get("span_mm") or 0))
             if sum((float(a) - float(b)) ** 2 for a, b in zip(declared, center)) ** 0.5 > tol:
                 continue
-        elif declared and not center:
-            continue
+        elif declared:
+            continue  # a part-wide warning is not accepted by a regional record
         if not item.get("reason") or not item.get("evidence"):
-            return False, "acceptance for %s needs both reason and evidence" % code
+            note = "acceptance for %s needs both reason and evidence" % code
+            continue
         return True, item.get("reason")
-    return False, None
+    return False, note
 
 
 def evaluate(P, report, render, manifest, slice_report):
     reasons, untriaged, checks = [], [], {}
+    digest = design_hash(P)
 
     if not report:
         reasons.append("no .out/report.json; run build.py then check_print.py")
         report = {}
+    elif report.get("design_hash") != digest:
+        reasons.append("checks are from a different build; rerun check_print.py")
     if report.get("error"):
         reasons.append("check crashed; see report.error")
     if not report.get("pass"):
@@ -101,29 +108,29 @@ def evaluate(P, report, render, manifest, slice_report):
 
     if not render or not render.get("ok"):
         reasons.append("renders missing or failed (.out/render_status.json)")
+    elif render.get("design_hash") != digest:
+        reasons.append("renders are from a different build; rerun render_views.py")
     elif render.get("warnings"):
         reasons.append("render warnings: " + "; ".join(str(w) for w in render["warnings"][:4]))
 
     if not manifest:
         reasons.append("no .out/manifest.json; rerun build.py")
     else:
-        for rel, digest in (manifest.get("sources") or {}).items():
+        for rel, expected in (manifest.get("sources") or {}).items():
             if rel == "design":
-                if design_hash(P) != digest:
+                if digest != expected:
                     reasons.append("outputs are stale: params.json changed after the build; "
                                    "rerun the pipeline")
                 continue
             path = os.path.join(PROJECT, rel)
-            if not os.path.exists(path) or sha256(path) != digest:
+            if not os.path.exists(path) or sha256(path) != expected:
                 reasons.append("outputs are stale: %s changed after the build; rerun the pipeline" % rel)
-        for part in manifest.get("parts", []):
-            for path in (part.get("files") or {}).values():
-                if not os.path.exists(path):
-                    reasons.append("manifest lists a missing file: %s" % path)
 
     slicer_ok = False
     if slice_report and slice_report.get("ok"):
         problems = []
+        if slice_report.get("design_hash") != digest:
+            problems.append("the slice is from a different design; re-slice")
         no_support = not P.get("print", {}).get("supports_allowed")
         blocking = re.compile(r"outside|empty|unsupported", re.I)
         current = {p.get("name"): p.get("sha256", {}).get("3mf") or p.get("sha256", {}).get("stl")
@@ -144,15 +151,14 @@ def evaluate(P, report, render, manifest, slice_report):
 
     preview = P.get("print", {}).get("preview") or {}
     if not slicer_ok:
-        if preview.get("done") and preview.get("supports_off"):
-            checks["preview"] = {"mode": "manual", "by": preview.get("by", ""),
-                                 "date": preview.get("date", ""),
-                                 "evidence": preview.get("evidence", "")}
+        if all(preview.get(k) for k in ("done", "supports_off", "by", "date", "evidence")):
+            checks["preview"] = {"mode": "manual", "by": preview["by"],
+                                 "date": preview["date"], "evidence": preview["evidence"]}
         else:
             reasons.append(
                 "not print-verified: slice with supports off (run.ps1 -Slice), or look at the slicer "
                 "with supports off and record print.preview {done: true, supports_off: true, by, date, "
-                "evidence} in params.json")
+                "evidence} in params.json (all fields are required)")
 
     return {"printable": not reasons, "reasons": reasons, "untriaged": untriaged,
             "checks": checks, "generated": time.strftime("%Y-%m-%dT%H:%M:%S")}
