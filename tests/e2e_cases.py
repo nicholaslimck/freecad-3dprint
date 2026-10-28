@@ -252,6 +252,11 @@ def main(argv):
     expect(os.path.isdir(dest), "release folder missing")
     expect(os.path.exists(os.path.join(dest, "README.md")), "release README missing")
     expect(os.path.exists(os.path.join(dest, "release.json")), "release record missing")
+    a.run(os.path.join("fcp", "status.py"))
+    st = a.json("status.json")
+    expect(st and st["gate"] and st["gate"]["printable"], "status must report the gate state")
+    expect(bool(st["slice_this"]), "status must name the slice file")
+    expect(bool(st["release_dir"]), "status must name the release folder")
 
     a.p["checks"]["accept"][0]["code"] = "flat_bridge"  # false bridge claim
     a.write_params(a.p)

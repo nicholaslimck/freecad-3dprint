@@ -55,6 +55,26 @@ If you need positive 90 deg retention and supports are not allowed, move the
 feature: put the hook on the base (where its retention face is vertical in
 print), or use a separate printed insert, a sliding latch or a rotating pawl.
 
+## Print the retention feature from the bed
+
+If the retention face cannot be support-free in the case's orientation, stop
+fighting the flip and move the feature:
+
+- **Rotating latch.** Print the latch flat on the bed, then rotate it into place
+  on a snap pivot or pin; the catch bar lives on the base. This is how many
+  commercial cases do it, and the bed supports every face while printing.
+- **Separate insert.** Print the hook/insert flat and fit it afterwards. It can
+  carry a 90 deg face that would be a shelf on the lid.
+- **Local support, by agreement.** A small removable support under the latch is
+  acceptable in an otherwise support-free design if the user agrees. Keep it
+  clear of the retention face, confirm in the slicer preview that it does not
+  fuse to the catch, and record the exception in `spec.md` (and in
+  `checks.accept` if the gate reports the region).
+
+The case's print orientation decides which option is cheap. A face that is a
+shelf in the lid's orientation may be vertical in the base's, or trivial when
+printed separately.
+
 ## Decision table
 
 | Constraint | Choose | Avoid |

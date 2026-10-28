@@ -23,6 +23,8 @@ from analysis import (  # noqa: E402
 from slice import fill, fresh_gcode  # noqa: E402
 from gate import evaluate  # noqa: E402
 from release import release  # noqa: E402
+from status import status  # noqa: E402
+from doctor import nested_workspace  # noqa: E402
 
 
 def _tilted(deg_from_vertical, z):
@@ -329,3 +331,59 @@ def test_release_refuses_unverified_or_stale(tmp_path):
     assert not release(str(unverified))["ok"]
     stale = _release_fixture(tmp_path / "stale", stale=True)
     assert not release(str(stale))["ok"]
+
+
+# ---------------------------------------------------------------- status / workspace layout
+def _status_fixture(tmp_path):
+    workspace = tmp_path / "proj" / ".freecad-3dprint"
+    out = workspace / ".out"
+    out.mkdir(parents=True)
+    (workspace / "params.json").write_text(json.dumps({"name": "case", "version": 3,
+                                                       "print": {"supports_allowed": False}}))
+    return workspace, out
+
+
+def test_status_without_a_build(tmp_path):
+    workspace, _ = _status_fixture(tmp_path)
+    result = status(str(workspace))
+    assert result["stem"] == "case_v3"
+    assert "no build" in result["next"]
+    assert result["slice_this"] == []
+
+
+def test_status_points_at_the_current_file_and_release(tmp_path):
+    workspace, out = _status_fixture(tmp_path)
+    model = out / "case_v3_print.3mf"
+    model.write_text("3mf")
+    manifest = {"parts": [{"name": "case", "slice_this": str(model), "step": "case.step"}]}
+    gate = {"printable": True, "reasons": [], "checks": {"preview": {"mode": "slicer"}}}
+    (out / "manifest.json").write_text(json.dumps(manifest))
+    (out / "print_gate.json").write_text(json.dumps(gate))
+    release_dir = tmp_path / "proj" / "print" / "case_v3"
+    release_dir.mkdir(parents=True)
+
+    result = status(str(workspace))
+    assert result["gate"]["printable"] and result["gate"]["verified"] == "slicer"
+    assert result["slice_this"] == [str(model)]
+    assert result["release_dir"] == str(release_dir)
+    assert "released" in result["next"]
+
+
+def test_status_reports_a_blocked_gate(tmp_path):
+    workspace, out = _status_fixture(tmp_path)
+    (out / "manifest.json").write_text(json.dumps({"parts": []}))
+    (out / "print_gate.json").write_text(json.dumps(
+        {"printable": False, "reasons": ["not print-verified"]}))
+    result = status(str(workspace))
+    assert "blocked" in result["next"]
+    assert "not print-verified" in result["next"]
+
+
+def test_nested_workspace_is_detected(tmp_path):
+    outer = tmp_path / ".freecad-3dprint"
+    inner = outer / "part" / ".freecad-3dprint"
+    inner.mkdir(parents=True)
+    assert nested_workspace(str(inner)) == str(outer)
+    normal = tmp_path / "proj" / ".freecad-3dprint"
+    normal.mkdir(parents=True)
+    assert nested_workspace(str(normal)) == ""

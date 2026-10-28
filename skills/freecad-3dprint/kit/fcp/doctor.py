@@ -32,6 +32,18 @@ def bom_files(root):
     return sorted(bad)
 
 
+def nested_workspace(project):
+    """The enclosing .freecad-3dprint directory, if this workspace is nested inside one."""
+    current = os.path.dirname(os.path.abspath(project))
+    while True:
+        if os.path.basename(current) == ".freecad-3dprint":
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            return ""
+        current = parent
+
+
 def main():
     result = {"ok": True, "problems": [], "warnings": [], "python": sys.version.split()[0]}
     print("python", sys.version.split()[0], sys.executable)
@@ -59,6 +71,13 @@ def main():
             "UTF-8 BOM in %s: FreeCADCmd fails with 'Unexpected UTF-8 BOM'. "
             "Rewrite the file without a BOM (Python: open(p, 'w', encoding='utf-8'))." % ", ".join(bad))
         print("BOM ", ", ".join(bad))
+
+    nested = nested_workspace(PROJECT)
+    if nested:
+        result["problems"].append(
+            "workspace is nested inside another .freecad-3dprint at %s; use one workspace per "
+            "project and run from the outer one" % nested)
+        print("NESTED", nested)
 
     try:
         with open(os.path.join(PROJECT, "params.json"), encoding="utf-8") as f:

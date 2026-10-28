@@ -97,6 +97,7 @@ The full pipeline, run from inside the workspace:
 powershell -ExecutionPolicy Bypass -File fcp\run.ps1           # build, check, render, gate
 powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Slice    # same, then slice
 powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step release   # verified files -> print/<stem>/
+powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step status    # current version, gate, file to print
 ```
 
 `run.ps1` exits 0 only when the print gate says the part is printable. Until a
@@ -143,6 +144,7 @@ skills/freecad-3dprint/
       slice.py              slicer CLI wrapper -> .out/slice_report.json
       gate.py               print gate -> .out/print_gate.json
       release.py            verified files -> <project>/print/<stem>/
+      status.py             current version, gate state, exact file -> .out/status.json
       doctor.py             environment, BOM and params check
       run.ps1               pipeline runner
   tests/ (repo root)        pure-python tests and FreeCAD end-to-end cases
@@ -190,7 +192,7 @@ OrcaSlicer and Bambu Studio CLI flags change between versions. Check them agains
 
 ## Status
 
-This is an early release (0.3.0). The pure-Python parts (overhang maths, support
+This is an early release (0.4.0). The pure-Python parts (overhang maths, support
 classification, slicer and gate helpers) have tests in `tests/`; run them with
 `pip install numpy pytest && pytest`. `tests/e2e_cases.py` builds the failure
 cases from the improvement handoff as throwaway projects through FreeCADCmd

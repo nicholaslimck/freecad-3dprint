@@ -137,6 +137,24 @@ A floating feature shows up as a second entry in `s.Solids`. Check `Solids` afte
 every build; a hook whose root gusset does not touch its parent is still exported
 as valid geometry.
 
+### Working from an existing model
+
+```python
+part = Part.read(r"C:\ref\reference.step")   # real faces and solids: booleans work
+part.BoundBox, part.Volume, len(part.Solids)
+
+import Mesh
+mesh = Mesh.Mesh(r"C:\ref\reference.3mf")    # STL/3MF: triangles only
+mesh.CountPoints, mesh.BoundBox, mesh.Volume
+shape = Part.Shape(mesh)                     # simple watertight meshes only; often fails
+```
+
+A STEP is a B-rep: use it as a reference body, or `cut`/`common` against it. An
+STL/3MF is a mesh with no feature tree, dimensions or editable faces. Measure it,
+write the dimensions into `spec.md`, and **rebuild the part parametrically**; keep
+the mesh as a visual or subtractive reference. A 3MF may contain several objects
+and transforms, so check what actually loaded before trusting its size.
+
 ## 10. Things to avoid
 - **Sketcher and its constraint solver from scripts.** It's verbose and fails silently. Build profiles from polygons, arcs and circles instead.
 - **PartDesign Body/Pad/Pocket from scripts.** It works, but the feature-tree semantics, like a single solid per body and attachment, add many failure modes without any benefit for a scripted part.

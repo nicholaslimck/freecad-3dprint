@@ -47,6 +47,11 @@ printed vertically with about 0.2 mm clearance.
 - The first two layers are treated as bed: an elephant-foot chamfer lives there and
   the bed supports it, so it is not reported as an overhang.
 - Bridges up to about 10 mm are reliable and 20 mm is usually OK. Anything longer needs support or a redesign.
+- **Slow the bridge, not the whole print.** A hinge strap or latch bridge that droops is
+  usually a speed/cooling problem before it is a geometry problem: set the bridge speed
+  and bridge fan separately (Creality Print 7.x has bridge settings under the material/
+  cooling tabs), or add a height-range speed modifier around the hinge. Check the result
+  in the preview with supports off.
 - **Bridge and cantilever are not the same thing.** A flat downward face is a
   bridge only when it is supported at two opposite ends; attached at one end it is
   a cantilever, and attached at none it needs support. The check reports
@@ -72,7 +77,16 @@ printed vertically with about 0.2 mm clearance.
 - **90 deg retention on a flipped lid:** the retention face becomes a horizontal
   shelf in print orientation. It cannot be support-free. Move the hook to the base
   or use a 45 deg friction catch.
-- **Living hinges:** only realistic in PP or TPU, and only printed flat.
+- **Rings, loops and hanging features:** put the loop in the layer plane so the load
+  runs along the layers. A ring printed perpendicular to the bed is loaded across
+  layer lines and snaps at the first drop. Flow the ring into the body with a fillet
+  or a tapered web instead of a sharp junction, and print the hole axis horizontally
+  only if the top is teardropped.
+- **Print-in-place hinge:** keep the declared gap (0.3-0.4 mm) after every fillet,
+  chamfer and boolean. A gap that closes prints the hinge as a solid block; check it
+  with `checks.relations` or a coupon before the full case.
+- **Living hinges:** only realistic in PP or TPU, and only printed flat. A 0.4 mm PETG
+  living hinge works for a few hundred cycles, not thousands; test a coupon.
 - **Cantilevered tabs and bosses:** add ribs or gussets at the root, and fillet internal corners at 0.5-1 mm to reduce stress concentration.
 - **Large flat plates:** tend to warp, especially in ABS/ASA. Use ribs instead of thickness, and round the corners.
 
