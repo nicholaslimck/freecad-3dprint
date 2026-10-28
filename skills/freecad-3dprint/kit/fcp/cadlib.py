@@ -428,6 +428,7 @@ def export_all(result, P):
         "version": P.get("version"),
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "orientation": P.get("print", {}).get("rotate", []),
+        "fcstd": fcstd,
         "sources": sources,
         "parts": records,
     }

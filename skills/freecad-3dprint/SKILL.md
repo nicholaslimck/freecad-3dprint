@@ -30,6 +30,7 @@ fcp/check_print.py  checks -> .out/report.json (codes, metrics, relations, coupo
 fcp/render_views.py 6 views + contact sheet, per-feature detail and section -> .out/views/
 fcp/slice.py        PrusaSlicer (or custom) CLI wrapper -> .out/slice_report.json
 fcp/gate.py         print gate -> .out/print_gate.json
+fcp/release.py      verified design -> <project>/print/<stem>/
 fcp/doctor.py       environment, BOM and params check -> .out/doctor.json
 fcp/run.ps1         build -> check -> render (-> slice) -> gate; exit 0 = printable
 ```
@@ -40,12 +41,13 @@ References, read when needed:
 
 ## Phase 0: Set up the workspace (once per part)
 1. Ask where the project folder is (the folder the part belongs to). Create
-   `<project>/.freecad-3dprint/`, copy everything from `kit/` into it,
-   and `git init` the workspace if git is available and the parent is not
-   already a repository. Everything below runs with that workspace as the
-   working directory, so `fcp\...`, `build.py` and `.out/...` are relative to it.
-   If you must run from the parent folder, prefix paths with
-   `.freecad-3dprint\`.
+   `<project>/.freecad-3dprint/`, copy everything from `kit/` into it (including
+   `kit/.gitignore`), and `git init` the workspace if git is available and the
+   parent is not already a repository. Everything below runs with that workspace
+   as the working directory, so `fcp\...`, `build.py` and `.out/...` are relative
+   to it. If you must run from the parent folder, prefix paths with
+   `.freecad-3dprint\`. The `.gitignore` ignores `.out/`; commit `spec.md`,
+   `params.json` and `build.py`, not the generated files.
 2. Run the doctor: `powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step doctor`.
    - It fails on a UTF-8 BOM, unreadable params.json or missing FreeCADCmd. If FreeCADCmd isn't found, ask for the path and set `$env:FREECAD_CMD`.
    - numpy and matplotlib ship with FreeCAD on Windows. If either is missing, renders won't work: say so and carry on with report-only checks.
@@ -130,17 +132,24 @@ Rules for the loop:
 
 ## Phase 5: Hand off
 Give the user a short summary:
-- Where the workspace is: `<project>/.freecad-3dprint/`. All paths below are inside it.
-- The exact file to print or slice: the `slice_this` path in `.out/manifest.json` (name it, do not say "the 3MF"). Also `.out/<stem>.FCStd` to open in FreeCAD and `.step` for CAD.
+- Where the workspace is: `<project>/.freecad-3dprint/`, and the released bundle in
+  `<project>/print/<stem>/`.
+- Once the gate passes, run `fcp\run.ps1 -Step release`. It refuses unless the gate is
+  printable for the current design, then copies the slice target, STEP, FCStd, report,
+  gate and manifest into `print/<stem>/` with a README and `release.json` (hashes).
+  Commit `print/` and the workspace sources (`spec.md`, `params.json`, `build.py`);
+  `.out/` is ignored by the kit's `.gitignore`.
+- The exact file to print or slice: the `slice_this` file, now also present in
+  `print/<stem>/` (name it, do not say "the 3MF"). The FCStd there opens in FreeCAD.
 - The key parameters and how to change them (edit `params.json`, rerun `run.ps1`); `version` in params bumps the output names so old files cannot be mistaken for new.
 - Gate status: printable or not, with the reason. Report any accepted warnings with their evidence, and info items.
 - Slicer stats if sliced, and whether the preview was manual.
 - **What to test-print first** when fits or flex matter: a coupon cut from the real feature (`params.coupon`), printed in the real orientation. Ask for measurements and open/close results, and put them in spec.md and params.json.
 
 ## Later changes
-For a dimension change, edit `params.json` and rerun. For a new feature, add a
-function, call it in `build(params)`, and rerun. Update `spec.md` when the
-requirements change. If the user wants to edit the model by hand, hand them the
-generated `<stem>.FCStd`; do not start a parallel editable script, because the two
-will drift. Old outputs: `fcp\run.ps1 -Step clean` archives `.out\` to
-`.out\archive\<timestamp>\`.
+For a dimension change, edit `params.json`, bump `version`, rerun, and release. For a
+new feature, add a function, call it in `build(params)`, and rerun. Update `spec.md`
+when the requirements change. If the user wants to edit the model by hand, hand them
+the generated `<stem>.FCStd`; do not start a parallel editable script, because the two
+will drift. Old working files: `fcp\run.ps1 -Step clean` archives `.out\` to
+`.out\archive\<timestamp>\`; released folders under `print/` are never touched.
