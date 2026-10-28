@@ -6,27 +6,38 @@ It works with Claude Code as a plugin, and with any other agent that can read a 
 
 ## How it works
 
-The agent follows five steps, which are written out in [`SKILL.md`](skills/freecad-3dprint/SKILL.md).
+The agent follows six steps, which are written out in [`SKILL.md`](skills/freecad-3dprint/SKILL.md).
 
-1. It agrees a spec with you first: measured dimensions of everything the part mates with, fits, material, print orientation, and whether supports are acceptable. It won't start modelling until you confirm.
-2. It puts every dimension in `params.json` and writes one Python function per feature in `build.py`.
-3. It runs the pipeline, reads `out/report.json`, looks at the rendered views, and fixes what's wrong. It may not loosen a check to make it pass without your agreement, and it stops to ask after three failed attempts at the same error.
-4. If you have PrusaSlicer (or another slicer with a CLI), it slices the part and reads back print time, filament and warnings.
-5. It hands over the FreeCAD file, a STEP, and a print-oriented 3MF/STL, along with a summary and a suggestion for what to test-print first.
+1. It agrees a spec with you first: measured dimensions of everything the part mates with, fits, material, print orientation, whether supports are acceptable, how a latch will retain, and what a coupon will test. It won't start modelling until you confirm.
+2. It puts every dimension in `params.json` and writes one Python function per feature in `build.py`, with a single `build(params)` that coupons reuse.
+3. It runs the pipeline, reads `.out/report.json`, looks at the rendered views, and fixes what's wrong. A flat downward face is classified as a bridge, cantilever or unsupported shelf from where the geometry is anchored. It may not loosen a check to make it pass without your agreement, and it stops to ask after three failed attempts at the same error.
+4. If you have PrusaSlicer (or another slicer with a CLI), it slices the part with supports off and reads back print time, filament and warnings. Without a slicer, you look at the preview and record the check in `params.json`.
+5. A print gate decides whether the part is printable. It refuses while a warning is untriaged, an output is stale, or no slice/manual preview exists.
+6. It hands over the exact file to print from `.out/manifest.json`, the FreeCAD file and a STEP, along with a summary and what to test-print first.
 
 The checks in `report.json` cover:
 
-- shape validity and solid count
+- shape validity, solid count and per-component volume/bbox (a floating feature is an error)
+- declared points that must be inside the part (latch and hinge roots)
 - the expected bounding box, which catches scale and axis mistakes
 - whether the mesh is watertight and manifold
 - walls thinner than `print.min_wall`
 - overhangs steeper than `print.max_overhang_deg`
-- flat downward faces (bridges)
+- flat downward faces, classified as `bridge`, `cantilever`, `unsupported` or `supported` with area, span, center and anchors
 - bed contact area and tall, thin parts
 - whether the part fits the build volume
 - horizontal holes that would print better as teardrops
+- declared clearance/interference between named parts (`distToShape` and intersection volume)
+- coupons that are not cut from the real part
 
-The renders are a six-view contact sheet in print orientation, with overhangs shaded red.
+Every finding has a stable `code`, so a warning can be accepted in
+`params.checks.accept` with a reason and evidence. A face declared as a bridge
+that the geometry shows as a cantilever is an error, not a warning.
+
+The renders are a six-view contact sheet in print orientation: red is a steep
+overhang, amber is a flat down face that is a cantilever or unsupported shelf.
+`render.features` adds a close-up and section per feature (a latch, a bead, a
+hinge) so a small undercut is visible without opening FreeCAD.
 
 ## Requirements
 
@@ -71,35 +82,43 @@ Whichever way you install, keep the folder intact and named `freecad-3dprint`. T
 
 ## Quick start
 
-Ask the agent for a part, for example "design a wall mount for a 60 mm round speaker, two M4 screws, PETG, no supports". On the first run it copies `kit/` into a project folder and checks your setup. You can run the same check yourself from the project folder:
+Ask the agent for a part, for example "design a wall mount for a 60 mm round speaker, two M4 screws, PETG, no supports". On the first run it creates `<project>\.freecad-3dprint\`, copies `kit/` there, and checks your setup. All work happens inside that hidden workspace, so your project folder keeps its normal files. Run the same check yourself from inside it:
 
 ```powershell
+cd .freecad-3dprint
 powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step doctor
 ```
 
 If FreeCAD isn't found, set `$env:FREECAD_CMD` to the full path of `FreeCADCmd.exe`.
 
-The full pipeline is:
+The full pipeline, run from inside the workspace:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File fcp\run.ps1          # build, check, render
+powershell -ExecutionPolicy Bypass -File fcp\run.ps1          # build, check, render, gate
 powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Slice   # same, then slice
 ```
 
-Without PowerShell, set `FCP_PROJECT` to the project folder and run the scripts in order:
+`run.ps1` exits 0 only when the print gate says the part is printable. Until a
+slice (supports off) or a recorded manual preview exists, it exits 1 and names
+what is missing. The individual steps run and print their status first, so you can
+still work the check/render loop with `-Step check` or `-Step render`.
+
+Without PowerShell, set `FCP_PROJECT` to the workspace (`.freecad-3dprint`) and run the scripts in order from inside it:
 
 ```
 FreeCADCmd.exe build.py
 FreeCADCmd.exe fcp/check_print.py
 FreeCADCmd.exe fcp/render_views.py
 FreeCADCmd.exe fcp/slice.py
+FreeCADCmd.exe fcp/gate.py
 ```
 
-FreeCADCmd's exit code doesn't reliably reflect script errors, so each step writes its own status file to `out/`.
+FreeCADCmd's exit code doesn't reliably reflect script errors (and it does not set
+`__name__ == "__main__"`), so each step writes its own status file to `.out/`.
 
 To slice with your printer's real settings, export a config from PrusaSlicer (File > Export > Export Config) and set `slicer.config` in `params.json`.
 
-## Project layout
+## Repo layout
 
 ```
 skills/freecad-3dprint/
@@ -107,30 +126,65 @@ skills/freecad-3dprint/
   references/
     freecad-api.md          FreeCAD calls known to work, gotchas, common errors
     printability.md         wall, fit, fastener and overhang rules of thumb
+    latches-and-snaps.md    latch/snap design, orientation flips, decision table
   kit/                      copied into each new project
     build.py                parametric build script (example: a mounting plate)
-    params.json             all dimensions and print settings
+    params.json             all dimensions, check expectations, coupon and print settings
     spec.md                 requirements template
     fcp/
-      cadlib.py             geometry helpers: holes, counterbores, teardrops, fillets, export
-      check_print.py        printability checks -> out/report.json
-      render_views.py       orthographic renders -> out/views/
-      slice.py              slicer CLI wrapper -> out/slice_report.json
-      doctor.py             environment check
+      cadlib.py             geometry helpers: holes, counterbores, teardrops, fillets,
+                            section/coupon, export + manifest, no-BOM writes
+      analysis.py           pure-numpy flat-face regions and bridge/cantilever classification
+      check_print.py        printability checks -> .out/report.json
+      render_views.py       orthographic, detail and section renders -> .out/views/
+      slice.py              slicer CLI wrapper -> .out/slice_report.json
+      gate.py               print gate -> .out/print_gate.json
+      doctor.py             environment, BOM and params check
       run.ps1               pipeline runner
+  tests/ (repo root)        pure-python tests and FreeCAD end-to-end cases
 ```
+
+## Project layout
+
+```
+<project>/
+  .freecad-3dprint/   created by the skill; the working directory for every step
+    build.py                   features and build(params)
+    params.json                dimensions, checks, coupon, print settings
+    spec.md                    requirements and triage
+    fcp/                       checks, renders, slicer, gate, runner
+    .out/                      generated: reports, renders, STL/3MF, manifest, gate
+```
+
+The project folder itself keeps whatever else belongs to the part: datasheets,
+photos, the user's own notes.
 
 ## Limitations
 
-The wall-thickness check samples points on each face and ray-marches inward, so it can miss very small features. The overhang check works from face angles and can't tell a short bridge from a long one. The renders exist to catch what these checks miss, so an agent that can't view images will ask you to look at them.
+The wall-thickness check samples points on each face and ray-marches inward, so it
+can miss very small features. The support classification is geometric and
+heuristic: it groups horizontal down faces, probes just outside their boundary for
+material, and calls a face a bridge when anchors enclose its centroid. A curved,
+diagonal or very small shelf can be misclassified, so the result is reported with
+its anchors and support fraction and is always backed by the slicer/preview gate.
+It is not a substitute for looking at the layers.
 
-The printability numbers in `references/printability.md` are FDM starting points for a 0.4 mm nozzle. Printers differ, and the skill suggests printing a test coupon whenever a fit matters.
+The renders exist to catch what these checks miss, so an agent that can't view
+images will ask you to look at them.
+
+The printability numbers in `references/printability.md` are FDM starting points for a 0.4 mm nozzle. Printers differ, and the skill suggests printing a test coupon whenever a fit matters. Coupons are sections of the real part, not standalone blocks.
 
 OrcaSlicer and Bambu Studio CLI flags change between versions. Check them against your slicer's `--help` before relying on the custom slicer template.
 
 ## Status
 
-This is an early release (0.1.0). The pure-Python parts (overhang maths and slicer helpers) have tests in `tests/`; run them with `pip install numpy pytest && pytest`. Rendering is not tested yet. The FreeCAD-facing scripts have been checked for syntax but not yet run end to end against every FreeCAD release. Bug reports with the contents of `out/build_status.json` or `out/report.json` are welcome.
+This is an early release (0.2.0). The pure-Python parts (overhang maths, support
+classification, slicer and gate helpers) have tests in `tests/`; run them with
+`pip install numpy pytest && pytest`. `tests/e2e_cases.py` builds the failure
+cases from the improvement handoff as throwaway projects through FreeCADCmd
+(cantilever shelf, two-tower bridge, disconnected hook, BOM, coupon section) and
+needs FreeCAD installed. Rendering is not pixel-tested. Bug reports with the
+contents of `.out/build_status.json` or `.out/report.json` are welcome.
 
 ## License
 

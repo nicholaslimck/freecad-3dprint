@@ -1,23 +1,27 @@
 <#
 .SYNOPSIS
-  Build -> check -> render (-> slice) pipeline for a FreeCAD 3D-print project.
+  Build -> check -> render (-> slice) -> gate pipeline for a FreeCAD 3D-print project.
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File fcp\run.ps1             # build, check, render
+  powershell -ExecutionPolicy Bypass -File fcp\run.ps1             # build, check, render, gate
   powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Slice      # ...and slice
+  powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step gate
   powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step doctor
+  powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step clean
 .NOTES
   FreeCADCmd is found via $env:FREECAD_CMD, then Program Files / LocalAppData, then PATH.
-  Exit code: 0 = all requested steps passed, 1 = something failed (details in out\*.json).
+  Exit code: 0 = all requested steps passed AND the print gate says printable.
+  1 = something failed (details in .out\*.json). A part without a clean slice or a
+  recorded manual supports-off preview is NOT printable, so the run fails at the gate.
 #>
 param(
-  [ValidateSet("all", "build", "check", "render", "slice", "doctor")]
+  [ValidateSet("all", "build", "check", "render", "slice", "gate", "doctor", "clean")]
   [string]$Step = "all",
   [switch]$Slice
 )
 $ErrorActionPreference = "Stop"
 $Project = Split-Path -Parent $PSScriptRoot
 $env:FCP_PROJECT = $Project
-$Out = Join-Path $Project "out"
+$Out = Join-Path $Project ".out"
 
 function Find-FreeCADCmd {
   if ($env:FREECAD_CMD -and (Test-Path $env:FREECAD_CMD)) { return $env:FREECAD_CMD }
@@ -45,18 +49,36 @@ function Read-Status([string]$name) {
   return Get-Content $p -Raw | ConvertFrom-Json
 }
 
+New-Item -ItemType Directory -Force -Path $Out | Out-Null
+
+if ($Step -eq "clean") {
+  $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $dest = Join-Path $Out "archive\$stamp"
+  New-Item -ItemType Directory -Force -Path $dest | Out-Null
+  Get-ChildItem $Out -Force | Where-Object { $_.Name -ne "archive" } |
+    Move-Item -Destination $dest -Force
+  Write-Host "archived .out\ -> $dest"
+  exit 0
+}
+
 $script:FC = Find-FreeCADCmd
 Write-Host "FreeCADCmd: $script:FC"
-New-Item -ItemType Directory -Force -Path $Out | Out-Null
 $failed = $false
 
-if ($Step -eq "doctor") { Invoke-FC (Join-Path $PSScriptRoot "doctor.py"); exit 0 }
+if ($Step -eq "doctor") {
+  Remove-Item (Join-Path $Out "doctor.json") -ErrorAction SilentlyContinue
+  Invoke-FC (Join-Path $PSScriptRoot "doctor.py")
+  $d = Read-Status "doctor.json"
+  if (-not $d -or -not $d.ok) { Write-Host "DOCTOR FAILED - see .out\doctor.json"; exit 1 }
+  exit 0
+}
 
 if ($Step -in @("all", "build")) {
   Remove-Item (Join-Path $Out "build_status.json") -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $Out "slice_report.json") -ErrorAction SilentlyContinue  # new export invalidates the slice
   Invoke-FC (Join-Path $Project "build.py")
   $s = Read-Status "build_status.json"
-  if (-not $s -or -not $s.ok) { Write-Host "BUILD FAILED - see out\build_status.json"; exit 1 }
+  if (-not $s -or -not $s.ok) { Write-Host "BUILD FAILED - see .out\build_status.json"; exit 1 }
 }
 if ($Step -in @("all", "check")) {
   Remove-Item (Join-Path $Out "report.json") -ErrorAction SilentlyContinue
@@ -76,4 +98,16 @@ if ($Slice -or $Step -eq "slice") {
   $sl = Read-Status "slice_report.json"
   if (-not $sl -or -not $sl.ok) { $failed = $true }
 }
+if ($Step -in @("all", "gate")) {
+  Remove-Item (Join-Path $Out "print_gate.json") -ErrorAction SilentlyContinue
+  Invoke-FC (Join-Path $PSScriptRoot "gate.py")
+  $g = Read-Status "print_gate.json"
+  if (-not $g -or -not $g.printable) {
+    Write-Host "PRINT GATE: not printable - see .out\print_gate.json"
+    $failed = $true
+  } else {
+    Write-Host "PRINT GATE: printable"
+  }
+}
 if ($failed) { exit 1 } else { exit 0 }
+

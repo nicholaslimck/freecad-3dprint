@@ -122,11 +122,20 @@ Glyph faces with counters (O, A, 8) sometimes come out filled. Check them in the
 ```python
 s.isValid(); s.check(True)       # check() raises with a reason when invalid
 len(s.Solids); s.Volume; s.Area; s.BoundBox (XMin, XLength, ..., DiagonalLength)
+len(s.Shells)                    # a solid normally has the same number of shells
 s.isInside(V(x,y,z), 1e-4, True) # point containment
 s.distToShape(other)[0]          # min distance between shapes (clearance checks between parts)
+s.common(other)                  # intersection; use a box to cut a coupon or a section
 Part.read(path)                  # load STEP/BREP
 s.exportStep(path)
 ```
+`BoundBox` is conservative: after a fillet it can extend a few tenths of a mm past
+the nominal surface even though volume was removed. Set `checks.bbox_mm` from the
+built part, not the drawing.
+
+A floating feature shows up as a second entry in `s.Solids`. Check `Solids` after
+every build; a hook whose root gusset does not touch its parent is still exported
+as valid geometry.
 
 ## 10. Things to avoid
 - **Sketcher and its constraint solver from scripts.** It's verbose and fails silently. Build profiles from polygons, arcs and circles instead.
@@ -143,3 +152,32 @@ s.exportStep(path)
 | `report: 2+ solids` | a cut split the part, or a fuse had a gap between bodies |
 | invalid shape after boolean | coincident faces: add EPS overshoot |
 | `Part.OCCError: Failed to create face from wire` | wire isn't closed or isn't planar |
+| `Unexpected UTF-8 BOM` | the script starts with a UTF-8 BOM; see below |
+| `AttributeError: 'Part.Wire' object has no attribute 'edges'` | Python API names are capitalised: `Wire.Edges`, `Shape.Solids` |
+
+## 12. Running scripts headless
+
+**`__name__` is not `"__main__"` under FreeCADCmd.** A script that ends with
+
+```python
+if __name__ == "__main__":
+    main()
+```
+
+can run to completion without executing `main()` and without an error. Call
+`main()` directly at the bottom of a headless script, or wrap it explicitly:
+
+```
+FreeCADCmd.exe -c "import build; build.main()"
+```
+
+The kit scripts call `main()` directly for this reason.
+
+**No UTF-8 BOM.** FreeCADCmd refuses a file that starts with one. Python's
+`open(path, "w", encoding="utf-8")` does not write a BOM, but Windows PowerShell
+5.1's `Set-Content -Encoding UTF8` does. Use `cadlib.write_text(path, text)`, and
+`fcp/doctor.py` scans the project for BOMs.
+
+**Exit codes are not reliable** for FreeCADCmd. Every kit step writes
+`.out/<step>_status.json` or `.out/report.json`; read those instead.
+

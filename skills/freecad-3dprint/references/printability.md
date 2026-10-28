@@ -44,16 +44,34 @@ printed vertically with about 0.2 mm clearance.
 
 ## Overhangs, bridges, orientation
 - Overhangs up to **45 deg from vertical** print fine without support. Flag anything steeper.
+- The first two layers are treated as bed: an elephant-foot chamfer lives there and
+  the bed supports it, so it is not reported as an overhang.
 - Bridges up to about 10 mm are reliable and 20 mm is usually OK. Anything longer needs support or a redesign.
+- **Bridge and cantilever are not the same thing.** A flat downward face is a
+  bridge only when it is supported at two opposite ends; attached at one end it is
+  a cantilever, and attached at none it needs support. The check reports
+  `flat_bridge`, `flat_cantilever` or `flat_unsupported` with area, span, center
+  and anchor points. Never justify a shelf by calling it a bridge.
+- If a down face is declared a bridge in `checks.accept` but the geometry shows
+  one-sided support, the check fails with `declared_bridge_is_cantilever`.
 - Make horizontal holes > ~5 mm **teardrop**-shaped (`cadlib.teardrop_hole`), or accept a sagging top.
 - Under a horizontal overhang, use a 45 deg chamfer instead of a fillet. Fillets on downward edges become steep overhangs near the tangent point.
 - On upward and vertical edges, fillets are fine and look better.
+- A fillet can make the OCC bounding box slightly larger than the nominal size
+  even though material was removed. Set `checks.bbox_mm` from the built part (or
+  leave `bbox_tol` loose enough for the fillet), not from the drawing.
 - **Layer lines are the weak direction.** Orient the part so the main load runs along the layers, not across them. Hooks, clips and brackets often need to lie on their side.
 - Put the largest flat face on the bed when strength allows. Avoid knife-edge bed contact.
 - Elephant foot: chamfer outer bed edges 0.3-0.5 mm (`params.print.elephant_foot_chamfer`), especially where a part must fit against something.
 
 ## Mechanical features
-- **Snap fits:** cantilever length at least 5x thickness, strain kept low, and printed so the beam flexes along the layers.
+- **Snap fits:** cantilever length at least 5x thickness (8-10x comfortable), strain
+  kept low (`1.5 * t * y / L^2`, under ~2% for PETG, ~1.5% for PLA in reused snaps),
+  and printed so the beam flexes along the layers. Add a lead-in chamfer and a
+  0.5-1 mm root fillet. See `latches-and-snaps.md` before designing a latch.
+- **90 deg retention on a flipped lid:** the retention face becomes a horizontal
+  shelf in print orientation. It cannot be support-free. Move the hook to the base
+  or use a 45 deg friction catch.
 - **Living hinges:** only realistic in PP or TPU, and only printed flat.
 - **Cantilevered tabs and bosses:** add ribs or gussets at the root, and fillet internal corners at 0.5-1 mm to reduce stress concentration.
 - **Large flat plates:** tend to warp, especially in ABS/ASA. Use ribs instead of thickness, and round the corners.
