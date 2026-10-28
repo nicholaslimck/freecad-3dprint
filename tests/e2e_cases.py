@@ -139,13 +139,14 @@ class Case:
     def __init__(self, name, body, p):
         self.name = name
         self.dir = os.path.join(WORK, name)
+        self.workspace = os.path.join(self.dir, ".freecad-3dprint")
         shutil.rmtree(self.dir, ignore_errors=True)
-        shutil.copytree(KIT, self.dir)
+        shutil.copytree(KIT, self.workspace)
         self.write("build.py", BUILD.format(name=name, body=body))
         self.write_params(p)
 
     def write(self, rel, text):
-        path = os.path.join(self.dir, rel)
+        path = os.path.join(self.workspace, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
@@ -155,13 +156,14 @@ class Case:
         self.write("params.json", json.dumps(p, indent=2))
 
     def run(self, script):
-        env = dict(os.environ, FCP_PROJECT=self.dir)
-        proc = subprocess.run([find_freecad(), os.path.join(self.dir, script)],
-                              cwd=self.dir, env=env, capture_output=True, text=True, timeout=900)
+        env = dict(os.environ, FCP_PROJECT=self.workspace)
+        proc = subprocess.run([find_freecad(), os.path.join(self.workspace, script)],
+                              cwd=self.workspace, env=env, capture_output=True, text=True,
+                              timeout=900)
         return (proc.stdout or "") + (proc.stderr or "")
 
     def json(self, rel):
-        path = os.path.join(self.dir, ".out", rel)
+        path = os.path.join(self.workspace, ".out", rel)
         if not os.path.exists(path):
             return None
         with open(path, encoding="utf-8") as f:
@@ -259,9 +261,9 @@ def main(argv):
     bom_case = Case("bom", CANTILEVER,
                     params("bom", {"wall": 3, "width": 20, "height": 20, "depth": 4,
                                    "lip": 0.8, "shelf_z": 10}, [7, 20, 20]))
-    with open(os.path.join(bom_case.dir, "build.py"), "rb") as f:
+    with open(os.path.join(bom_case.workspace, "build.py"), "rb") as f:
         blob = f.read()
-    with open(os.path.join(bom_case.dir, "build.py"), "wb") as f:
+    with open(os.path.join(bom_case.workspace, "build.py"), "wb") as f:
         f.write(b"\xef\xbb\xbf" + blob)
     bom_case.run(os.path.join("fcp", "doctor.py"))
     doctor = bom_case.json("doctor.json")

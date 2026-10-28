@@ -38,12 +38,18 @@ References, read when needed:
 - `references/printability.md`: wall, fit, fastener, overhang numbers. Read it while writing the spec.
 - `references/latches-and-snaps.md`: **read before designing any lid, latch, catch or snap fit.**
 
-## Phase 0: Set up the project (once per part)
-1. Create a project folder (ask the user where if it isn't obvious), copy everything from `kit/` into it, and `git init` it if git is available.
+## Phase 0: Set up the workspace (once per part)
+1. Ask where the project folder is (the folder the part belongs to). Create
+   `<project>/.freecad-3dprint/`, copy everything from `kit/` into it,
+   and `git init` the workspace if git is available and the parent is not
+   already a repository. Everything below runs with that workspace as the
+   working directory, so `fcp\...`, `build.py` and `.out/...` are relative to it.
+   If you must run from the parent folder, prefix paths with
+   `.freecad-3dprint\`.
 2. Run the doctor: `powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step doctor`.
    - It fails on a UTF-8 BOM, unreadable params.json or missing FreeCADCmd. If FreeCADCmd isn't found, ask for the path and set `$env:FREECAD_CMD`.
    - numpy and matplotlib ship with FreeCAD on Windows. If either is missing, renders won't work: say so and carry on with report-only checks.
-3. **Without PowerShell** (bash, WSL, another harness), run the steps directly from the project folder with `FCP_PROJECT` set:
+3. **Without PowerShell** (bash, WSL, another harness), run the steps directly from the workspace with `FCP_PROJECT` set to its path:
    ```
    FreeCADCmd.exe build.py
    FreeCADCmd.exe fcp/check_print.py
@@ -124,6 +130,7 @@ Rules for the loop:
 
 ## Phase 5: Hand off
 Give the user a short summary:
+- Where the workspace is: `<project>/.freecad-3dprint/`. All paths below are inside it.
 - The exact file to print or slice: the `slice_this` path in `.out/manifest.json` (name it, do not say "the 3MF"). Also `.out/<stem>.FCStd` to open in FreeCAD and `.step` for CAD.
 - The key parameters and how to change them (edit `params.json`, rerun `run.ps1`); `version` in params bumps the output names so old files cannot be mistaken for new.
 - Gate status: printable or not, with the reason. Report any accepted warnings with their evidence, and info items.

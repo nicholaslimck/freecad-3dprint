@@ -82,15 +82,16 @@ Whichever way you install, keep the folder intact and named `freecad-3dprint`. T
 
 ## Quick start
 
-Ask the agent for a part, for example "design a wall mount for a 60 mm round speaker, two M4 screws, PETG, no supports". On the first run it copies `kit/` into a project folder and checks your setup. You can run the same check yourself from the project folder:
+Ask the agent for a part, for example "design a wall mount for a 60 mm round speaker, two M4 screws, PETG, no supports". On the first run it creates `<project>\.freecad-3dprint\`, copies `kit/` there, and checks your setup. All work happens inside that hidden workspace, so your project folder keeps its normal files. Run the same check yourself from inside it:
 
 ```powershell
+cd .freecad-3dprint
 powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step doctor
 ```
 
 If FreeCAD isn't found, set `$env:FREECAD_CMD` to the full path of `FreeCADCmd.exe`.
 
-The full pipeline is:
+The full pipeline, run from inside the workspace:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File fcp\run.ps1          # build, check, render, gate
@@ -102,7 +103,7 @@ slice (supports off) or a recorded manual preview exists, it exits 1 and names
 what is missing. The individual steps run and print their status first, so you can
 still work the check/render loop with `-Step check` or `-Step render`.
 
-Without PowerShell, set `FCP_PROJECT` to the project folder and run the scripts in order:
+Without PowerShell, set `FCP_PROJECT` to the workspace (`.freecad-3dprint`) and run the scripts in order from inside it:
 
 ```
 FreeCADCmd.exe build.py
@@ -117,7 +118,7 @@ FreeCADCmd's exit code doesn't reliably reflect script errors (and it does not s
 
 To slice with your printer's real settings, export a config from PrusaSlicer (File > Export > Export Config) and set `slicer.config` in `params.json`.
 
-## Project layout
+## Repo layout
 
 ```
 skills/freecad-3dprint/
@@ -142,6 +143,21 @@ skills/freecad-3dprint/
       run.ps1               pipeline runner
   tests/ (repo root)        pure-python tests and FreeCAD end-to-end cases
 ```
+
+## Project layout
+
+```
+<project>/
+  .freecad-3dprint/   created by the skill; the working directory for every step
+    build.py                   features and build(params)
+    params.json                dimensions, checks, coupon, print settings
+    spec.md                    requirements and triage
+    fcp/                       checks, renders, slicer, gate, runner
+    .out/                      generated: reports, renders, STL/3MF, manifest, gate
+```
+
+The project folder itself keeps whatever else belongs to the part: datasheets,
+photos, the user's own notes.
 
 ## Limitations
 
