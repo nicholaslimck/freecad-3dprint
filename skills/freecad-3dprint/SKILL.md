@@ -31,6 +31,7 @@ fcp/render_views.py 6 views + contact sheet, per-feature detail and section -> .
 fcp/slice.py        PrusaSlicer (or custom) CLI wrapper -> .out/slice_report.json
 fcp/gate.py         print gate -> .out/print_gate.json
 fcp/release.py      verified design -> <project>/print/<stem>/
+fcp/status.py       current version, gate state, exact file -> .out/status.json
 fcp/doctor.py       environment, BOM and params check -> .out/doctor.json
 fcp/run.ps1         build -> check -> render (-> slice) -> gate; exit 0 = printable
 ```
@@ -47,7 +48,8 @@ References, read when needed:
    as the working directory, so `fcp\...`, `build.py` and `.out/...` are relative
    to it. If you must run from the parent folder, prefix paths with
    `.freecad-3dprint\`. The `.gitignore` ignores `.out/`; commit `spec.md`,
-   `params.json` and `build.py`, not the generated files.
+   `params.json` and `build.py`, not the generated files. Never create a second
+   workspace inside an existing one; the doctor fails a nested workspace.
 2. Run the doctor: `powershell -ExecutionPolicy Bypass -File fcp\run.ps1 -Step doctor`.
    - It fails on a UTF-8 BOM, unreadable params.json or missing FreeCADCmd. If FreeCADCmd isn't found, ask for the path and set `$env:FREECAD_CMD`.
    - numpy and matplotlib ship with FreeCAD on Windows. If either is missing, renders won't work: say so and carry on with report-only checks.
@@ -80,6 +82,8 @@ Edit `build.py`. One `build(params)` function that returns a shape or `{part_nam
 - **One function per feature**, called in order in `build(params)`. Never keep a second copy of the feature code for the FCStd, a coupon or an "editable" script. Coupons are cut from the real part with `add_coupons(parts, P, build, WARN)`; the FCStd is exported from the same shapes.
 - Model in "design orientation", with whatever axes are natural. Print orientation is applied only at export and check time.
 - Build from primitives, extruded polygons and booleans (see the API reference). Avoid Sketcher and PartDesign from scripts.
+- **Show options, don't describe them.** When there are 2+ candidate shapes (latch, hinge, loop, bezel), build each one and render it before asking the user to choose. Text-only options are not a design review; the user is judging geometry they cannot see.
+- **Starting from an existing model.** A STEP can be loaded with `Part.read()` and used as a reference or a boolean body. An STL/3MF is a triangle mesh, not an editable B-rep: measure it, record the dimensions in `spec.md`, and rebuild the part parametrically; use the mesh only as a visual or subtractive reference (`Mesh.Mesh(path)`, `MeshPart`). See `freecad-api.md`.
 - Fillet and chamfer last, or select edges after the booleans that affect them. Use `safe_fillet`, and check `build_status.json` warnings for fillets that were skipped.
 - Use print-aware features: `teardrop_hole` for horizontal holes, chamfers rather than fillets on downward edges, `chamfer_bed_edges` for elephant foot.
 - For multi-part designs, model all parts from the same params. Declare `checks.relations` for clearance/engagement between named parts (see below) instead of measuring by hand.
@@ -129,9 +133,11 @@ Rules for the loop:
 - Read `.out/slice_report.json` for print time, filament, support generation, out-of-bed and empty-layer warnings.
 - Read `.out/print_gate.json`. `printable: false` lists exactly what is missing (untriaged warning, stale outputs, no slice/preview). `run.ps1` exits nonzero until it passes.
 - If the slicer shows an unsupported region the checks missed, treat it as a check bug: say so, fix the geometry first, then add the case to the triage table.
+- **Deliberate experiment.** If the user wants to print something the gate has not verified, accept the warnings with `"reason": "experiment"` and `"evidence": "not print-verified; experimental print"`, say plainly that the gate is still unsatisfied, and do **not** run `-Step release`. The print is allowed; the claim of printable is not.
 
 ## Phase 5: Hand off
 Give the user a short summary:
+- Run `fcp\run.ps1 -Step status` first and quote its `NEXT`/`SLICE`/`RELEASE` lines. If the user asks "where is the current version?", that command is the answer; do not hunt through `.out`.
 - Where the workspace is: `<project>/.freecad-3dprint/`, and the released bundle in
   `<project>/print/<stem>/`.
 - Once the gate passes, run `fcp\run.ps1 -Step release`. It refuses unless the gate is
@@ -149,7 +155,9 @@ Give the user a short summary:
 ## Later changes
 For a dimension change, edit `params.json`, bump `version`, rerun, and release. For a
 new feature, add a function, call it in `build(params)`, and rerun. Update `spec.md`
-when the requirements change. If the user wants to edit the model by hand, hand them
-the generated `<stem>.FCStd`; do not start a parallel editable script, because the two
-will drift. Old working files: `fcp\run.ps1 -Step clean` archives `.out\` to
+when the requirements change. If the user edits the generated `<stem>.FCStd` by hand,
+treat their file as a reference: import it (`Part.read` for STEP/FCStd), compare the
+bbox/volume with the built part, and port the change back into `params.json` and
+`build.py`. Never maintain the generated file and a hand-edited copy in parallel.
+Old working files: `fcp\run.ps1 -Step clean` archives `.out\` to
 `.out\archive\<timestamp>\`; released folders under `print/` are never touched.

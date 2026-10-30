@@ -8,6 +8,12 @@
 |---|---|---|---|---|
 | <e.g. M3 screw> | through hole | 3.0 mm shank | datasheet | hole_d (3.4 clearance) |
 
+## Reference model (if any)
+<Path to a STEP/3MF/STL used as a visual or dimensional reference, or "none". An
+STL/3MF is a mesh: record its measured dimensions here and rebuild the part
+parametrically; do not plan to edit its faces. A STEP can be imported as a real
+solid. State which features were taken from the reference.>
+
 ## Key dimensions
 | Param | Value (mm) | Hard limit or flexible? | Why |
 |---|---|---|---|
