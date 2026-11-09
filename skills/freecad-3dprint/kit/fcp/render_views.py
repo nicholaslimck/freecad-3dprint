@@ -163,11 +163,20 @@ def _check_print_module():
     return check_print
 
 
-def categories(shape, P, points, facets):
-    """0 normal, 1 steep overhang, 2 flat down face that is a cantilever or unsupported."""
+def part_categories(shape, P, points, facets, classify_down_faces=None):
+    """0 normal, 1 steep overhang, 2 flat down face that is a cantilever or unsupported.
+
+    Classify the WHOLE part once. A clipped feature uses `map_categories` against
+    these arrays rather than classifying its own cropped copy: cropping changes
+    what counts as "material below", so a coupon could classify differently from
+    the solid it was cut from.
+    """
     from analysis import facet_arrays, flat_down_mask, overhang_mask
 
-    classify_down_faces = _check_print_module().classify_down_faces
+    if classify_down_faces is None:
+        if shape is None:
+            raise ValueError("part_categories needs classify_down_faces when shape is None")
+        classify_down_faces = _check_print_module().classify_down_faces
 
     pr = P.get("print", {})
     cent, nrm, area = facet_arrays(points, facets)
@@ -184,6 +193,37 @@ def categories(shape, P, points, facets):
         if region["kind"] in ("cantilever", "unsupported"):
             cat[region["facets"]] = 2
     return cat
+
+
+def categories(shape, P, points, facets, classify_down_faces=None):
+    """Kept for callers that want the whole-part array; see part_categories()."""
+    return part_categories(shape, P, points, facets, classify_down_faces)
+
+
+def map_categories(src_points, src_facets, src_cat, dst_points, dst_facets):
+    """Category per destination facet, matched by centroid to the source mesh.
+
+    Both meshes are in the same coordinate frame; a feature mesh is the part
+    mesh clipped, so every destination centroid coincides with a source one.
+
+    ponytail: O(n*m) nearest-centroid match; a KD-tree from scipy is the upgrade
+    if a feature ever carries >50k facets. scipy is not a FreeCAD dependency today.
+    """
+    from analysis import facet_arrays
+
+    src_cent, _, _ = facet_arrays(src_points, src_facets)
+    dst_cent, _, _ = facet_arrays(dst_points, dst_facets)
+    out = np.zeros(len(dst_cent), np.int8)
+    if len(src_cent) == 0 or len(dst_cent) == 0:
+        return out
+    span = float(np.linalg.norm(np.ptp(np.asarray(src_points, float), axis=0)))
+    tol = max(1e-9, 1e-3 * span)
+    for i, c in enumerate(dst_cent):
+        d = np.linalg.norm(src_cent - c, axis=1)
+        j = int(d.argmin())
+        if d[j] <= tol:
+            out[i] = src_cat[j]
+    return out
 
 
 def feature_shape(shape, feat):
@@ -227,8 +267,9 @@ def main():
             points = np.array([[p.x, p.y, p.z] for p in pts])
             facets = np.array(facets, dtype=int)
             bb = s.BoundBox
+            part_cats = part_categories(s, P, points, facets)   # once per part, reused below
             result["images"] += render_part(
-                stem, points, facets, categories(s, P, points, facets),
+                stem, points, facets, part_cats,
                 (bb.XLength, bb.YLength, bb.ZLength), os.path.join(out_dir(), "views"),
                 views=SUPPORT_VIEWS)
 
@@ -240,8 +281,10 @@ def main():
                     fpoints = np.array([[p.x, p.y, p.z] for p in fpts])
                     ffacets = np.array(ffacets, dtype=int)
                     fbb = fs.BoundBox
+                    # whole-part categories, mapped onto the coupon (never re-classified)
+                    fcats = map_categories(points, facets, part_cats, fpoints, ffacets)
                     result["images"] += render_part(
-                        stem, fpoints, ffacets, categories(fs, P, fpoints, ffacets),
+                        stem, fpoints, ffacets, fcats,
                         (fbb.XLength, fbb.YLength, fbb.ZLength), os.path.join(out_dir(), "views"),
                         views=FEATURE_SUPPORT_VIEWS, tag="_" + str(feat["name"]))
                 except Exception as exc:  # noqa: BLE001 - one bad feature must not lose the sheet

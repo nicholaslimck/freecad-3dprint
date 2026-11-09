@@ -130,3 +130,89 @@ def test_whole_part_raster_renders_only_the_bottom_view(tmp_path):
                           views=rv.SUPPORT_VIEWS)
     views = {r["view"] for r in recs} - {"sheet"}
     assert views == {"bottom"}
+
+
+def _classify_stub(shape, points, facets, cent, nrm, area, zmin, P):
+    """Support-aware stub: an unsupported flat-down facet is one with nothing below it.
+
+    Deliberately simple geometry-only logic so the test pins the renderer's
+    plumbing (whole part -> coupon) rather than the real classifier's heuristics.
+    """
+    import analysis
+    flat = analysis.flat_down_mask(nrm, cent, zmin, (P.get("print") or {}).get("layer_height", 0.2))
+    pts = np.asarray(points, float)
+    tri = pts[np.asarray(facets, int)]
+    regions = []
+    for i in np.flatnonzero(flat):
+        probe = tri[i].mean(axis=0) - np.array([0.0, 0.0, 0.5])
+        below = pts[pts[:, 2] < probe[2]]
+        supported = bool(len(below)) and bool(
+            np.any((np.abs(below[:, :2] - probe[:2]) < 3.0).all(axis=1)))
+        if not supported:
+            regions.append({"kind": "unsupported", "facets": np.array([i])})
+    return {}, regions
+
+
+def _partial_shelf():
+    """A shelf whose underside is half supported (a pillar) and half over air.
+
+    Built as disjoint boxes: `test_fcp._union` only concatenates faces, so
+    overlapping boxes leave doubled and inside-out triangles.
+
+      base plate   z 0..2
+      back wall    z 2..20
+      pillar       z 2..10, x 10..16   -> supports the shelf's right half
+      shelf        z 10..10.8          -> underside at z=10
+    """
+    import test_fcp
+    boxes = [((0, 0, 0), (20, 20, 2)),            # base plate (bed)
+             ((0, 0, 2), (20, 2, 20)),            # back wall
+             ((10, 2, 2), (16, 16, 10)),          # pillar under the shelf's right half
+             ((0, 2, 10), (20, 18, 10.8))]        # the shelf
+    pts, faces = test_fcp._union(*boxes)
+    return np.asarray(pts, float), np.asarray(faces, int).reshape(-1, 3)
+
+
+def test_floating_shelf_underside_is_amber():
+    import analysis
+    import render_views as rv
+    pts, faces = _partial_shelf()
+    cat = rv.part_categories(None, {"print": {"layer_height": 0.2}},
+                             pts, faces, classify_down_faces=_classify_stub)
+    cent, nrm, _ = analysis.facet_arrays(pts, faces)
+    under = (-nrm[:, 2] > 0.995) & (np.abs(cent[:, 2] - 10.0) < 1e-3)
+    assert under.any()
+    assert (cat[under] == 2).all()
+    top = (nrm[:, 2] > 0.995) & (np.abs(cent[:, 2] - 20.0) < 1e-3)
+    assert top.any() and (cat[top] == 0).all()     # the wall tops stay normal
+
+
+def test_clipped_feature_gets_the_whole_part_category_array():
+    """A coupon's categories must come from the whole part, not from re-classifying the crop.
+
+    This pins the plumbing: `map_categories` reproduces the whole-part array on
+    the surviving facets. It does not claim the two paths differ in colour for
+    this fixture - see the Task 7 ledger note: for the support map both paths
+    land on the same category on every fixture we could build, because the
+    category depends on material below and a mesh cut either keeps or removes it
+    symmetrically. What this test does prove is that no facet loses its
+    whole-part category on the way through the clip.
+    """
+    import analysis
+    import render_views as rv
+    pts, faces = _partial_shelf()
+    whole = rv.part_categories(None, {"print": {"layer_height": 0.2}},
+                               pts, faces, classify_down_faces=_classify_stub)
+    cent, _, _ = analysis.facet_arrays(pts, faces)
+    keep = cent[:, 0] < 10.0                       # half the shelf, a whole triangle wide
+    fpts, remap = np.unique(faces[keep].ravel(), return_inverse=True)
+    ffacets = remap.reshape(-1, 3)
+    fcat = rv.map_categories(pts, faces, whole, pts[fpts], ffacets)
+    fcent, fnrm, _ = analysis.facet_arrays(pts[fpts], ffacets)
+    under = (-fnrm[:, 2] > 0.995) & (np.abs(fcent[:, 2] - 10.0) < 1e-3)
+    assert under.any()
+    # every surviving facet carries the category its source facet had
+    _, _, _ = analysis.facet_arrays(pts, faces)
+    src = np.array([int(np.argmin(np.linalg.norm(cent - c, axis=1))) for c in fcent])
+    assert (fcat == whole[src]).all()
+    assert (fcat[under] == 2).all()
