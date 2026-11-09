@@ -314,6 +314,36 @@ def main(argv):
     expect("coupon_not_section" not in codes(coupon or {}),
            "section coupon must not be warned as a block coupon")
 
+    print("8. feature close-ups carry both engines")
+    f = Case("feature", COUPON,
+             params("feature", {"length": 40, "width": 20, "floor": 1.6, "wall": 1.2,
+                                "height": 12, "lip": 0.8, "eps": 0.01}, [40, 20, 12]))
+    f.p["render"] = {"features": [{"name": "lip", "bbox_mm": [[-20, -10, 8], [20, 10, 12]],
+                                   "section": {"axis": "z", "at_mm": 10.0}}]}
+    f.write_params(f.p)
+    f.checkout()
+    imgs = f.json("render_status.json")["images"]
+    lip = [i for i in imgs if "_lip_" in os.path.basename(i["path"])]
+    expect(any(i["engine"] == "techdraw" for i in lip), "feature needs TechDraw line art")
+    expect(any(i["engine"] == "raster" for i in lip), "feature needs a raster support panel")
+    expect(any("_lip_section_" in os.path.basename(i["path"]) for i in lip),
+           "a sectioned feature needs its section variant")
+    for i in lip:
+        expect(os.path.getsize(i["path"]) > 1000, "feature panel is empty: " + i["path"])
+
+    print("9. a bad section is a warning, not a lost sheet")
+    f.p["render"]["features"][0]["section"]["at_mm"] = 7.0   # below the bbox z minimum of 8
+    f.write_params(f.p)
+    f.run(os.path.join("fcp", "render_views.py"))
+    rs = f.json("render_status.json")
+    expect(rs["ok"], "a bad section must not fail the render")
+    expect(any("feature render lip failed" in w for w in rs["warnings"]),
+           "the bad section must be named as a feature warning: %s" % rs["warnings"])
+    expect(any("outside the feature bbox" in w for w in rs["warnings"]),
+           "the warning must say why: %s" % rs["warnings"])
+    whole = [i for i in rs["images"] if i["view"] in ("iso", "front", "bottom")]
+    expect(len(whole) >= 3, "the whole-part panels must survive a bad feature")
+
     print()
     if failures:
         print("FAILED %d check(s)" % len(failures))

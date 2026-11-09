@@ -212,13 +212,13 @@ def map_categories(src_points, src_facets, src_cat, dst_points, dst_facets):
     return out
 
 
-def feature_shape(shape, feat):
-    """Clip to the feature box, then (optionally) keep the low side of a section plane."""
+def feature_shape(shape, feat, apply_section=True):
+    """Clip to the feature box, then (unless apply_section is False) keep the low side of the section plane."""
     from cadlib import section
 
     lo, hi = [list(map(float, corner)) for corner in feat["bbox_mm"]]
     clipped = section(shape, lo, hi)
-    sec = feat.get("section")
+    sec = feat.get("section") if apply_section else None
     if sec:
         axis = str(sec.get("axis", "y")).lower()
         if axis not in ("x", "y", "z"):
@@ -321,30 +321,35 @@ def main():
 
             for feat in P.get("render", {}).get("features", []):
                 try:
-                    fs = feature_shape(s, feat)
-                    fbb = fs.BoundBox
-                    fbox = (fbb.XLength, fbb.YLength, fbb.ZLength)
                     ftag = "_" + str(feat["name"])
                     sec = feat.get("section")
-                    sec_text = ("section: %s=%.2f mm" % (sec["axis"], float(sec["at_mm"]))
-                                if sec else None)
-                    # shape: line art at the feature's OWN span (BC5), never the part's
-                    fshape, fwarn, ftime = render_lines.render_part(
-                        fs, stem, fbox, outdir, views=render_lines.FEATURE_SHAPE_VIEWS,
-                        tag=ftag, section_text=sec_text, feature=True)
-                    result["warnings"] += fwarn
-                    result["timings"] += ftime
+                    # the feature as-is, and (when it declares one) the sectioned cut
+                    variants = [("", None)]
+                    if sec:
+                        variants.append(("_section",
+                                         "section: %s=%.2f mm" % (sec["axis"], float(sec["at_mm"]))))
+                    for vsuffix, sec_text in variants:
+                        fs = feature_shape(s, feat, apply_section=bool(vsuffix))
+                        fbb = fs.BoundBox
+                        fbox = (fbb.XLength, fbb.YLength, fbb.ZLength)
+                        vtag = ftag + vsuffix
+                        # shape: line art at the feature's OWN span (BC5), never the part's
+                        fshape, fwarn, ftime = render_lines.render_part(
+                            fs, stem, fbox, outdir, views=render_lines.FEATURE_SHAPE_VIEWS,
+                            tag=vtag, section_text=sec_text, feature=True)
+                        result["warnings"] += fwarn
+                        result["timings"] += ftime
 
-                    # support: whole-part categories mapped onto the coupon
-                    fmesh = mesh_from_shape(fs, P, linear=0.02, angular_deg=8)
-                    fpts, ffacets = fmesh.Topology
-                    fpoints = np.array([[p.x, p.y, p.z] for p in fpts])
-                    ffacets = np.array(ffacets, dtype=int)
-                    fcats = map_categories(points, facets, part_cats, fpoints, ffacets)
-                    fsup = render_part(
-                        stem, fpoints, ffacets, fcats, fbox, outdir,
-                        views=FEATURE_SUPPORT_VIEWS, tag=ftag + "_support")
-                    result["images"] += fshape + fsup
+                        # support: whole-part categories mapped onto the coupon
+                        fmesh = mesh_from_shape(fs, P, linear=0.02, angular_deg=8)
+                        fpts, ffacets = fmesh.Topology
+                        fpoints = np.array([[p.x, p.y, p.z] for p in fpts])
+                        ffacets = np.array(ffacets, dtype=int)
+                        fcats = map_categories(points, facets, part_cats, fpoints, ffacets)
+                        fsup = render_part(
+                            stem, fpoints, ffacets, fcats, fbox, outdir,
+                            views=FEATURE_SUPPORT_VIEWS, tag=vtag + "_support")
+                        result["images"] += fshape + fsup
                 except Exception as exc:  # noqa: BLE001 - one bad feature must not lose the sheet
                     result["warnings"].append("feature render %s failed: %s" % (feat.get("name"), exc))
         result["ok"] = True
