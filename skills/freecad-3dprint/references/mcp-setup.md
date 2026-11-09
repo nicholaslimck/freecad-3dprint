@@ -90,10 +90,51 @@ the setup steps are the same for OpenCode, Claude Code, Codex, or anything else.
 
 | `reason` | Meaning | Fix |
 |---|---|---|
-| `connection refused` | nothing is listening on the port | start FreeCAD, or start the RPC server |
-| `timed out` | the port did not answer within 2 s | a firewall or security agent is intercepting loopback; allow it, or treat MCP as absent |
+| `connection refused` | nothing is listening on the port | FreeCAD is closed or the RPC server never started |
+| `timed out` | something holds the port but does not answer | **FreeCAD's GUI thread is wedged** - see "Known crash" below. Restart FreeCAD; a firewall is the other possibility |
 | `not an XML-RPC server: ...` | something else answered on 9875 | stop that service, or accept that MCP is unavailable |
 | `wrong protocol version: server N, probe 1` | addon and probe disagree | update the addon so its `PROTOCOL_VERSION` matches the probe's |
 
 `available: false` is never a problem for the design work. Say so once, offer
 this file, and carry on headless.
+
+`timed out` and `connection refused` mean different things and the probe keeps
+them apart on purpose: **refused** is a clean "no server", **timed out** is a
+server that accepted the connection and then stopped responding, which is the
+wedged-GUI failure below, not a missing install.
+
+## Known crash: `execute_code_async` wedges or kills FreeCAD
+
+Observed on Windows, FreeCAD 1.1.4, addon 0.1.30. Both repros are minimal and
+need no workbench:
+
+```python
+# 1. wedges the GUI thread: server stays listening, never answers
+import FreeCAD
+doc = FreeCAD.newDocument("scratch_probe")     # enough on its own
+
+# 2. second attempt killed the process outright
+```
+
+Symptoms, in order:
+
+- `execute_code_async` returns a job id, then `get_async_status` times out.
+- `FreeCAD.exe` shows `Responding: False` with a flat CPU count - blocked, not
+  spinning. `mcp_probe` flips to `timed out`.
+- After a restart the same call crashed the process: Windows Application log
+  shows `BEX64` / `c0000409` (fail-fast) in `ucrtbase.dll`. `freecadcmd.exe`
+  hosting the addon crashes separately in `Qt6Core.dll`.
+
+**Upstream:** this is [neka-nat/freecad-mcp#115](https://github.com/neka-nat/freecad-mcp/issues/115),
+open and unfixed. The reporter's trigger is a broken FeaturePython object; the
+repro above needs no such object. The hard crash has no matching issue.
+
+**What to do:**
+
+- Do not use `execute_code_async` to build geometry. Use
+  `execute_code_headless`, which runs in a separate `freecadcmd` process and
+  cannot take the GUI down.
+- Treat the live path as best-effort for `get_view` only, and expect to restart
+  FreeCAD afterwards.
+- If the probe says `timed out`, tell the user to restart FreeCAD rather than
+  guessing at firewalls.
