@@ -102,5 +102,6 @@ def main():
     sys.stdout.flush()
 
 
-if not os.environ.get("FCP_NO_MAIN"):
-    main()  # FreeCADCmd does not set __name__ == "__main__"
+from cli import run
+
+run(main, module_name=__name__)
