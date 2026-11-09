@@ -203,27 +203,69 @@ Verified on Windows, FreeCAD 1.1.4, addon 0.1.30:
 | `get_rpc_status` | works - reports GUI dispatch health |
 | `execute_code_headless` building geometry, saving a `.FCStd`, returning output | works |
 | `execute_code_async` | **crashes FreeCAD** |
-| `get_view` on an open document | runs and returns a PNG, but the capture was blank - see below |
+| `get_view` on an open document with visible objects | works - returns a real 3D render |
 
-### A headless-built document opens with everything hidden
+### A headless-built document opens with everything hidden - and how to fix it
 
 `execute_code_headless` has no GUI, so every object it creates has
-`ViewObject: None` - there is no view provider to attach a view to. When the GUI
-later opens that `.FCStd`, the objects are present but **hidden**, and
-`get_view` returns a blank image with no error. Setting `Visibility = True`
-before `saveAs` does not survive: the file was reopened and the parts were still
-hidden.
+`ViewObject: None`. A plain `saveAs` writes only `Document.xml` and the `.brp`
+shape files - **no `GuiDocument.xml`** - so when the GUI later opens the file
+there is no view state to restore and everything comes up hidden. `get_view`
+then returns a blank image with no error. Setting `Visibility = True` on the
+document object before saving does not help: that property round-trips, but the
+GUI does not read it.
 
-So the round trip "build headlessly, save, open in the GUI, screenshot it" does
-not work. The practical consequence:
+**Fix: write `GuiDocument.xml` into the archive before the GUI opens it.**
+Verified working - the parts appear visible with no manual toggling, and
+`get_view` returns a real render:
 
-- **Do not build review candidates in headless FreeCAD and hand the user a
-  `.FCStd` expecting them to see the shapes.** They will open an empty view.
-- **Use the contact sheet** (`render_lines.contact_sheet` / `fcp/run.ps1`). It is
-  a real image, needs no GUI, and is what the skill delivers anyway.
-- Building candidates *inside* the running GUI needs `execute_code_async`, which
-  crashes FreeCAD here. There is currently no working path to a live 3D view.
+```python
+import zipfile, shutil
 
-None of this blocks the design loop. It only removes the "show me live" nicety
-the skill offered.
+def vp(name, rank):
+    return (
+        '        <ViewProvider name="%s" expanded="0" treeRank="%d" Extensions="True">\n'
+        '            <Extensions Count="0">\n            </Extensions>\n'
+        '            <Properties Count="2" TransientCount="0">\n'
+        '                <Property name="ShowInTree" type="App::PropertyBool" status="1">\n'
+        '                    <Bool value="true"/>\n                </Property>\n'
+        '                <Property name="Visibility" type="App::PropertyBool" status="1">\n'
+        '                    <Bool value="true"/>\n                </Property>\n'
+        '            </Properties>\n        </ViewProvider>\n' % (name, rank))
+
+gui = ("<?xml version='1.0' encoding='utf-8'?>\n"
+       '<Document SchemaVersion="1" HasExpansion="1">\n'
+       '    <Expand />\n'
+       '    <ViewProviderData Count="%d">\n' % len(names)
+       + "".join(vp(n, 4288 + i) for i, n in enumerate(names))
+       + "    </ViewProviderData>\n</Document>\n")
+
+tmp = path + ".tmp"
+with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+    for it in zin.infolist():
+        zout.writestr(it, zin.read(it.filename))
+    zout.writestr("GuiDocument.xml", gui)
+shutil.move(tmp, path)
+```
+
+The details that matter, each of which silently breaks it if wrong:
+
+- the `<ViewProviderData Count="N">` wrapper - without it the whole file is ignored
+- `HasExpansion="1"` on `<Document>`, and the `<Expand />` element
+- `ShowInTree` **and** `Visibility`, both `App::PropertyBool`, `status="1"`
+- one `<ViewProvider>` per object, `name` matching the object exactly
+
+**Still not automated:** building the candidates while the GUI is open needs
+`execute_code_async`, which crashes FreeCAD here (above). So the working shape of
+the live path is:
+
+1. build and save the `.FCStd` with `execute_code_headless`, adding
+   `GuiDocument.xml` as above
+2. ask the user to open it - or use `reload_document` if it is already open
+3. `get_view` for the screenshot
+
+That is a round trip through the user, not a live loop, but it produces a real
+3D view and it does not touch the crashing call. Treat the contact sheet as the
+default and this as the occasional nicety.
+
 
