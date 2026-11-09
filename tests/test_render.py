@@ -61,3 +61,45 @@ def test_viewport_pads_by_four_percent_of_the_part_span():
     assert pad == pytest.approx(4.0)
     assert (x0, y0) == pytest.approx((-4.0, -4.0))
     assert (w, h) == pytest.approx((108.0, 58.0))
+
+
+def test_drawing_captions_and_sizes_are_present():
+    import re
+    import render_lines as rl
+    lines = [np.array([[0.0, 0.0], [10.0, 0.0]]), np.array([[0.0, 0.0], [0.0, 5.0]])]
+    part = np.array([[0.0, 0.0], [10.0, 5.0]])
+    svg = rl.drawing(lines, part, caption=["part_v3 - front", "bbox 10.00 x 5.00 x 2.00 mm",
+                                          "scale 20.00 px/mm"], minimum_px_per_mm=20.0)
+    assert svg.lstrip().startswith("<svg") and svg.rstrip().endswith("</svg>")
+    for word in ("part_v3 - front", "bbox 10.00 x 5.00 x 2.00 mm", "scale 20.00 px/mm"):
+        assert word in svg
+    assert 'stroke-width="' in svg
+    w, h = rl.svg_size(svg)
+    assert w == int(re.search(r'width="(\d+)"', svg).group(1)) and w >= 10 * 20
+
+
+def test_drawing_with_no_edges_still_produces_a_captioned_svg():
+    import render_lines as rl
+    svg = rl.drawing([], np.array([[0.0, 0.0], [1.0, 1.0]]), caption=["empty view"])
+    assert "empty view" in svg and "</svg>" in svg
+
+
+def test_drawing_panel_is_sized_by_the_part_not_fitted_to_view_px():
+    """A 10 mm part at 20 px/mm is ~216 px, not 756: the scale floor is authoritative."""
+    import render_lines as rl
+    part = np.array([[0.0, 0.0], [10.0, 5.0]])
+    svg = rl.drawing([np.array([[0.0, 0.0], [10.0, 0.0]])], part, caption=["x"],
+                     minimum_px_per_mm=20.0)
+    w, h = rl.svg_size(svg)
+    assert w < 300, "panel was fitted to VIEW_PX instead of the part's own scale"
+    assert w >= int(10.0 * 20.0)
+
+
+def test_drawing_caption_fits_inside_the_canvas():
+    import re
+    import render_lines as rl
+    part = np.array([[0.0, 0.0], [10.0, 5.0]])
+    svg = rl.drawing([], part, caption=["a", "b", "c"], minimum_px_per_mm=20.0)
+    last_y = max(float(y) for y in re.findall(r'y="([\d.]+)" font', svg))
+    _, h = rl.svg_size(svg)
+    assert last_y < h - 2, "the last caption line is clipped by the canvas"
