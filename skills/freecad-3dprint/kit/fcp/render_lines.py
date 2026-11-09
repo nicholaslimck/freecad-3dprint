@@ -65,6 +65,10 @@ def _as_xy(pts):
 
 CAPTION_PX = 13.0          # caption line height, output pixels
 CAPTION_PAD_PX = 6.0       # gap between the drawing and the first caption line
+# Captions are measured against this canvas width regardless of the panel's real
+# one, so a sharp 2635 px panel and a 221 px one print the same size text when
+# the sheet scales them to the same cell.
+CAPTION_REF_PX = 260.0
 
 
 def _drawing_ppm(part_xy, minimum):
@@ -105,17 +109,22 @@ def drawing(polylines, part_xy, caption, section_text=None, minimum_px_per_mm=WH
     texts = list(caption or [])
     if section_text:
         texts.append(section_text)
+    # Caption size is a fraction of the canvas, so a panel drawn sharp at 2600 px
+    # and one at 220 px print the same text size once the sheet scales both to a
+    # cell. CAPTION_PX is the size at CAPTION_REF_PX.
+    cap = max(CAPTION_PX, w_px / CAPTION_REF_PX * CAPTION_PX) if texts else CAPTION_PX
+    cap_pad = cap * (CAPTION_PAD_PX / CAPTION_PX)
     # the canvas must fit the widest caption line too, or the text is clipped;
     # the drawing is then centred in the extra width rather than stretched
-    text_w = max((len(str(t)) * CAPTION_PX * 0.55 for t in texts), default=0.0)
-    canvas_w = max(w_px, int(round(text_w + 2 * CAPTION_PAD_PX)))
+    text_w = max((len(str(t)) * cap * 0.55 for t in texts), default=0.0)
+    canvas_w = max(w_px, int(round(text_w + 2 * cap_pad)))
     x_off = (canvas_w - w_px) / 2.0
-    cap_h = (CAPTION_PAD_PX + CAPTION_PX * len(texts)) if texts else 0.0
+    cap_h = (cap_pad + cap * len(texts)) if texts else 0.0
     text_svg = []
     for i, line in enumerate(texts):
-        ty = h_px + CAPTION_PAD_PX + CAPTION_PX * (i + 0.8)
+        ty = h_px + cap_pad + cap * (i + 0.8)
         text_svg.append('<text x="%.1f" y="%.1f" font-family="sans-serif" font-size="%.1f" '
-                        'fill="#000000">%s</text>' % (CAPTION_PAD_PX, ty, CAPTION_PX,
+                        'fill="#000000">%s</text>' % (cap_pad, ty, cap,
                                                      html.escape(str(line))))
     total_h = h_px + cap_h + CAPTION_PAD_PX      # bottom margin so the last line is not clipped
 
