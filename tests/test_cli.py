@@ -45,10 +45,19 @@ def test_run_passes_module_name_through(monkeypatch):
     assert CALLED == []
 
 
+def _freecad_exe():
+    """FreeCADCmd.exe, from the env, PATH, or the standard install location."""
+    import glob
+    import shutil
+    return (os.environ.get("FREECAD_CMD")
+            or shutil.which("FreeCADCmd") or shutil.which("freecadcmd")
+            or next(iter(sorted(glob.glob(r"C:\Program Files\FreeCAD*\bin\FreeCADCmd.exe"))), "")
+            or "")
+
+
 def test_freecadcmd_really_runs_the_script_and_python_does_not_on_import(tmp_path):
     """Pins all four cases the predicate must separate, on a machine with FreeCAD."""
-    import shutil
-    exe = shutil.which("FreeCADCmd") or shutil.which("freecadcmd")
+    exe = _freecad_exe()
     if not exe:
         pytest.skip("freecadcmd not installed")
     (tmp_path / "victim.py").write_text(
