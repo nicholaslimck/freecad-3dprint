@@ -278,7 +278,7 @@ FEATURE_SHAPE_VIEWS = {"iso": SIX_VIEWS["iso"], "front": SIX_VIEWS["front"],
 
 
 def render_part(shape, name, bbox, outdir, views=None, tag="", section_text=None,
-                feature=False):
+                minimum_px_per_mm=WHOLE_PART_PX_PER_MM):
     """Line art for each view of `shape`. Returns (records, warnings, timings).
 
     One TechDraw document per part (BC3). A view that fails is a warning, not a
@@ -289,7 +289,7 @@ def render_part(shape, name, bbox, outdir, views=None, tag="", section_text=None
     views = SIX_VIEWS if views is None else views
     os.makedirs(outdir, exist_ok=True)
     dims = "bbox %.2f x %.2f x %.2f mm (print orientation)" % tuple(bbox)
-    minimum = FEATURE_MIN_PX_PER_MM if feature else WHOLE_PART_PX_PER_MM
+    minimum = minimum_px_per_mm
     records, warnings, timings = [], [], []
     doc = None
     try:
@@ -306,7 +306,7 @@ def render_part(shape, name, bbox, outdir, views=None, tag="", section_text=None
                     continue
                 polys = [_edge_polyline(e) for e in edges]
                 part_xy = _polys_bounds(polys)
-                actual_ppm = _effective_ppm(part_xy, minimum)
+                actual_ppm = _drawing_ppm(part_xy, minimum)
                 caption = ["%s%s - %s" % (name, tag, view), dims,
                            "scale %.2f px/mm" % actual_ppm]
                 svg = drawing(polys, part_xy, caption=caption, section_text=section_text,
@@ -333,10 +333,6 @@ def _polys_bounds(polys):
     return np.vstack([p for p in polys if len(p)]) if polys else np.zeros((0, 2))
 
 
-def _effective_ppm(part_xy, minimum):
-    """The scale `drawing()` will use: the caller's floor, the whole-part floor, or the sharpness floor."""
-    return _drawing_ppm(part_xy, minimum)
-
 
 # ---------------------------------------------------------------- contact sheet
 ENGINE_FOOTER = ("shape: TechDraw line art | support: flat raster classification "
@@ -360,7 +356,6 @@ def contact_sheet(panels, path, title, footer):
     """
     import base64
     import html
-    import io
     import struct
 
     cells = []

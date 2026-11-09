@@ -74,13 +74,13 @@ CASES["six"] = case_six
 CASES["empty"] = case_empty
 CASES["sheet"] = case_sheet
 
+# freecadcmd sets __name__ to the file stem and opens path-like argv, so the
+# shim does the entry-point decision and the case/out come from the environment.
+from cli import run  # noqa: E402
+
 
 def _args():
-    """freecadcmd opens any argv that looks like a path, so args come from the env."""
     return os.environ.get("FCP_GT_CASE", "box"), os.environ["FCP_GT_OUT"]
 
 
-if __name__ == "__main__":
-    main(*_args())
-else:  # freecadcmd sets __name__ to the file stem
-    main(*_args())
+run(lambda: main(*_args()), module_name=__name__)

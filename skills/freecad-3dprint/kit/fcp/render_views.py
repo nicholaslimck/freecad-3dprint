@@ -37,15 +37,16 @@ VIEWS = {
     "back_iso": ((-1.0, 1.0, 0.8), (0, 0, 1)),
     "bottom": ((0.0, 0.0, -1.0), (0, 1, 0)),
 }
-FEATURE_VIEWS = {"iso": VIEWS["iso"], "front": VIEWS["front"],
-                 "top": VIEWS["top"], "bottom": VIEWS["bottom"]}
 # The raster engine's job is the support map. Bottom views are the only ones it
 # draws: that is where the red/amber categories are the question being asked.
 SUPPORT_VIEWS = {"bottom": VIEWS["bottom"]}
-FEATURE_SUPPORT_VIEWS = {"bottom": VIEWS["bottom"]}
 COLORS = np.array([[0.55, 0.68, 0.85],   # 0 normal
                    [0.90, 0.25, 0.20],   # 1 steep overhang
                    [0.95, 0.65, 0.15]])  # 2 flat down, cantilever/unsupported
+
+
+
+
 
 
 def _unit(v):
@@ -81,6 +82,12 @@ def subdivide(tri, cat, max_edge, max_tris=250000):
 
 
 def render_view(ax, tri, cat, eye, up_hint, title=""):
+    """Bottom view: keep down-facing facets, sort far-to-near, colour by category.
+
+    Only downward-facing facets are drawn - that is what makes the red/amber
+    support categories visible at all, since an upward face would otherwise cover
+    them. `subdivide` keeps the centroid sort correct across large triangles.
+    """
     from matplotlib.collections import PolyCollection
 
     e, r, u = camera(eye, up_hint)
@@ -89,18 +96,11 @@ def render_view(ax, tri, cat, eye, up_hint, title=""):
     keep = ln > 0
     n[keep] /= ln[keep][:, None]
     vis = keep & (n @ e > 1e-6)
-    tri_v, n_v = tri[vis], n[vis]
+    tri_v = tri[vis]
     xy = np.stack([tri_v @ r, tri_v @ u], axis=-1)
     depth = (tri_v @ e).mean(axis=1)
     order = np.argsort(depth)  # far first
-
-    light = _unit(e + 0.5 * u + 0.35 * r)
-    shade = 0.45 + 0.55 * np.clip(n_v @ light, 0, 1)
-    span = np.ptp(depth) if len(depth) else 0.0
-    if span > 0:  # depth cue: nearer is brighter, so pocket floors read differently from tops
-        shade *= 0.72 + 0.28 * (depth - depth.min()) / span
     col = COLORS[np.clip(cat[vis], 0, 2)]
-    col = np.clip(col * shade[:, None], 0, 1)
 
     pc = PolyCollection(xy[order], facecolors=col[order], edgecolors=col[order], linewidths=0.25)
     ax.add_collection(pc)
@@ -183,10 +183,6 @@ def part_categories(shape, P, points, facets, classify_down_faces=None):
             cat[region["facets"]] = 2
     return cat
 
-
-def categories(shape, P, points, facets, classify_down_faces=None):
-    """Kept for callers that want the whole-part array; see part_categories()."""
-    return part_categories(shape, P, points, facets, classify_down_faces)
 
 
 def map_categories(src_points, src_facets, src_cat, dst_points, dst_facets):
@@ -359,7 +355,8 @@ def main():
                             # shape: line art at the feature's OWN span (BC5), never the part's
                             fshape, fwarn, ftime = render_lines.render_part(
                                 fs, stem, fbox, outdir, views=render_lines.FEATURE_SHAPE_VIEWS,
-                                tag=vtag, section_text=sec_text, feature=True)
+                                tag=vtag, section_text=sec_text,
+                                minimum_px_per_mm=render_lines.FEATURE_MIN_PX_PER_MM)
                             result["warnings"] += fwarn
                             result["timings"] += ftime
 
@@ -371,7 +368,7 @@ def main():
                             fcats = map_categories(points, facets, part_cats, fpoints, ffacets)
                             fsup = render_part(
                                 stem, fpoints, ffacets, fcats, fbox, outdir,
-                                views=FEATURE_SUPPORT_VIEWS, tag=vtag + "_support")
+                                views=SUPPORT_VIEWS, tag=vtag + "_support")
                             result["images"] += fshape + fsup
                     except Exception as exc:  # noqa: BLE001 - one bad feature must not lose the sheet
                         result["warnings"].append("feature render %s failed: %s" % (feat.get("name"), exc))

@@ -28,29 +28,20 @@ def test_whole_part_scale_is_about_130_dpi():
     assert 700 <= w <= 780 and 700 <= h <= 780
 
 
-def test_stroke_grows_with_zoom_and_never_goes_below_the_floor():
-    import render_lines as rl
-    # whole part at ~700 px: the floor
-    assert rl.stroke_px(137.0, 700) == pytest.approx(rl.STROKE_PX)
-    # a feature panel is much larger in px: the line thickens, it does not vanish
-    big = rl.stroke_px(6.0, 2740)
-    assert big > rl.STROKE_PX
-    assert big < 6.0                      # and does not become a blob either
-    # round trip through the mm conversion the SVG uses
-    for w_mm, w_px in ((26.0, 700), (4.0, 80), (6.0, 2740)):
-        px = rl.stroke_px(w_mm, w_px)
-        assert rl.stroke_for(w_mm, w_px) * w_px / w_mm == pytest.approx(px, rel=1e-6)
-
-
-def test_a_two_pixel_stroke_on_a_2740_px_canvas_is_not_hairline():
+def test_stroke_floor_grows_with_zoom_and_round_trips_through_mm():
     """The bug this exists to prevent: pinning px instead of scaling with zoom."""
     import render_lines as rl
     case_px = 137.0 * rl.WHOLE_PART_PX_PER_MM        # ~701 px, today's panel
     feature_px = 6.0 * rl.FEATURE_MIN_PX_PER_MM      # 120 px minimum for a coupon
     big_px = 137.0 * rl.FEATURE_MIN_PX_PER_MM        # a large part at feature zoom
-    assert rl.stroke_px(137.0, case_px) == pytest.approx(rl.STROKE_PX, abs=0.01)
+    assert rl.stroke_px(137.0, case_px) == pytest.approx(rl.STROKE_PX, abs=0.01)  # floor
     assert rl.stroke_px(137.0, big_px) > 1.5 * rl.STROKE_PX   # zoomed in, thicker
+    assert rl.stroke_px(6.0, 2740) < 6.0                      # and not a blob
     assert rl.stroke_px(6.0, feature_px) >= rl.STROKE_PX      # small part, still visible
+    # round trip through the mm conversion the SVG uses
+    for w_mm, w_px in ((26.0, 700), (4.0, 80), (6.0, 2740)):
+        px = rl.stroke_px(w_mm, w_px)
+        assert rl.stroke_for(w_mm, w_px) * w_px / w_mm == pytest.approx(px, rel=1e-6)
 
 
 def test_viewport_pads_by_four_percent_of_the_part_span():
@@ -230,7 +221,8 @@ def test_line_art_matches_a_raycast_on_a_box(tmp_path):
     import json
     import subprocess
     out = tmp_path / "gt.json"
-    env = dict(os.environ, FCP_GT_CASE="box", FCP_GT_OUT=str(out))
+    env = dict({k: v for k, v in os.environ.items() if k != "FCP_NO_MAIN"},
+               FCP_GT_CASE="box", FCP_GT_OUT=str(out))
     subprocess.run([FREECAD, os.path.join(HERE, "render_gt.py")],
                    check=True, timeout=300, env=env)
     gt = json.loads(out.read_text())
@@ -245,7 +237,8 @@ def test_six_shape_views_with_engine_labels(tmp_path):
     import json
     import subprocess
     out = tmp_path / "gt2.json"
-    env = dict(os.environ, FCP_GT_CASE="six", FCP_GT_OUT=str(out))
+    env = dict({k: v for k, v in os.environ.items() if k != "FCP_NO_MAIN"},
+               FCP_GT_CASE="six", FCP_GT_OUT=str(out))
     subprocess.run([FREECAD, os.path.join(HERE, "render_gt.py")],
                    check=True, timeout=300, env=env)
     recs = json.loads(out.read_text())["records"]
@@ -260,7 +253,8 @@ def test_empty_view_warns_and_continues(tmp_path):
     import json
     import subprocess
     out = tmp_path / "gt3.json"
-    env = dict(os.environ, FCP_GT_CASE="empty", FCP_GT_OUT=str(out))
+    env = dict({k: v for k, v in os.environ.items() if k != "FCP_NO_MAIN"},
+               FCP_GT_CASE="empty", FCP_GT_OUT=str(out))
     subprocess.run([FREECAD, os.path.join(HERE, "render_gt.py")],
                    check=True, timeout=300, env=env)
     got = json.loads(out.read_text())
@@ -295,7 +289,8 @@ def test_sheet_states_both_engines(tmp_path):
     import json
     import subprocess
     out = tmp_path / "gt4.json"
-    env = dict(os.environ, FCP_GT_CASE="sheet", FCP_GT_OUT=str(out))
+    env = dict({k: v for k, v in os.environ.items() if k != "FCP_NO_MAIN"},
+               FCP_GT_CASE="sheet", FCP_GT_OUT=str(out))
     subprocess.run([FREECAD, os.path.join(HERE, "render_gt.py")],
                    check=True, timeout=300, env=env)
     got = json.loads(out.read_text())
