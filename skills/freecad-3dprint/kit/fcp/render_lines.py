@@ -94,8 +94,12 @@ def drawing(polylines, part_xy, caption, section_text=None, minimum_px_per_mm=WH
     texts = list(caption or [])
     if section_text:
         texts.append(section_text)
+    # the canvas must fit the widest caption line too, or the text is clipped;
+    # the drawing is then centred in the extra width rather than stretched
+    text_w = max((len(str(t)) * CAPTION_PX * 0.55 for t in texts), default=0.0)
+    canvas_w = max(w_px, int(round(text_w + 2 * CAPTION_PAD_PX)))
+    x_off = (canvas_w - w_px) / 2.0
     cap_h = (CAPTION_PAD_PX + CAPTION_PX * len(texts)) if texts else 0.0
-    total_h = h_px + cap_h
     text_svg = []
     for i, line in enumerate(texts):
         ty = h_px + CAPTION_PAD_PX + CAPTION_PX * (i + 0.8)
@@ -110,9 +114,9 @@ def drawing(polylines, part_xy, caption, section_text=None, minimum_px_per_mm=WH
         'viewBox="0 0 %d %d">\n'
         '<rect x="0" y="0" width="%d" height="%d" fill="#ffffff"/>\n'
         '<g transform="translate(%.1f %.1f) scale(%.4f -%.4f)">\n%s\n</g>\n%s\n</svg>\n'
-        % (w_px, int(round(total_h)), w_px, int(round(total_h)),
-           w_px, int(round(total_h)),
-           -x0 * ppm, (h_px + y0 * ppm), ppm, ppm,
+        % (canvas_w, int(round(total_h)), canvas_w, int(round(total_h)),
+           canvas_w, int(round(total_h)),
+           x_off - x0 * ppm, (h_px + y0 * ppm), ppm, ppm,
            "\n".join(body), "\n".join(text_svg)))
 
 
@@ -238,3 +242,71 @@ def close_document(doc):
         FreeCAD.closeDocument(doc.Name)
     except Exception:  # noqa: BLE001 - the app is going away anyway
         pass
+
+
+# ---------------------------------------------------------------- per-part entry point
+SIX_VIEWS = {
+    "iso": ((1.0, -1.0, 0.8), (0, 0, 1)),
+    "front": ((0.0, -1.0, 0.0), (0, 0, 1)),
+    "right": ((1.0, 0.0, 0.0), (0, 0, 1)),
+    "top": ((0.0, 0.0, 1.0), (0, 1, 0)),
+    "back_iso": ((-1.0, 1.0, 0.8), (0, 0, 1)),
+    "bottom": ((0.0, 0.0, -1.0), (0, 1, 0)),
+}
+FEATURE_SHAPE_VIEWS = {"iso": SIX_VIEWS["iso"], "front": SIX_VIEWS["front"],
+                       "top": SIX_VIEWS["top"]}
+
+
+def render_part(shape, name, bbox, outdir, views=None, tag="", section_text=None,
+                feature=False):
+    """Line art for each view of `shape`. Returns (records, warnings, timings).
+
+    One TechDraw document per part (BC3). A view that fails is a warning, not a
+    lost sheet, matching render_views.py's per-feature policy.
+    """
+    import time
+
+    views = SIX_VIEWS if views is None else views
+    os.makedirs(outdir, exist_ok=True)
+    dims = "bbox %.2f x %.2f x %.2f mm (print orientation)" % tuple(bbox)
+    minimum = FEATURE_MIN_PX_PER_MM if feature else WHOLE_PART_PX_PER_MM
+    records, warnings, timings = [], [], []
+    doc = None
+    try:
+        doc, obj = techdraw_document(shape, "%s%s" % (name, tag))
+        for view, (eye, up) in views.items():
+            t0 = time.time()
+            try:
+                edges = visible_edges(doc, obj, eye, up, "%s%s_%s" % (name, tag, view))
+                hlr_s = time.time() - t0
+                timings.append({"part": name, "view": view, "hlr_s": round(hlr_s, 3)})
+                if not edges:
+                    warnings.append("shape render %s%s_%s: no visible edges"
+                                    % (name, tag, view))
+                    continue
+                polys = [_edge_polyline(e) for e in edges]
+                part_xy = _polys_bounds(polys)
+                caption = ["%s%s - %s" % (name, tag, view), dims,
+                           "scale %.2f px/mm" % max(minimum, WHOLE_PART_PX_PER_MM)]
+                svg = drawing(polys, part_xy, caption=caption, section_text=section_text,
+                              minimum_px_per_mm=minimum)
+                path = os.path.join(outdir, "%s%s_%s_lines.png" % (name, tag, view))
+                rasterise(svg, path)
+                records.append({"path": path, "view": view, "engine": "techdraw"})
+            except Exception as exc:  # noqa: BLE001 - one bad view must not lose the sheet
+                warnings.append("shape render %s%s_%s failed: %s" % (name, tag, view, exc))
+    finally:
+        if doc is not None:
+            close_document(doc)
+    return records, warnings, timings
+
+
+def _edge_polyline(edge, n=48):
+    import numpy as np
+    pts = edge.discretize(n)
+    return np.array([[p.x, p.y] for p in pts], dtype=float)
+
+
+def _polys_bounds(polys):
+    import numpy as np
+    return np.vstack([p for p in polys if len(p)]) if polys else np.zeros((0, 2))

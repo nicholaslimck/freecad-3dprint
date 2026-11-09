@@ -236,3 +236,46 @@ def test_line_art_matches_a_raycast_on_a_box(tmp_path):
     flat = [c for pt in gt["corners"] for c in pt]
     assert flat == pytest.approx([0, 0, 0, 10, 40, 0, 40, 10], abs=1e-6)
     assert gt["no_visible_edge_in_the_middle"] is True
+
+
+@pytest.mark.skipif(not FREECAD, reason="freecadcmd not installed")
+def test_six_shape_views_with_engine_labels(tmp_path):
+    import json
+    import subprocess
+    out = tmp_path / "gt2.json"
+    env = dict(os.environ, FCP_GT_CASE="six", FCP_GT_OUT=str(out))
+    subprocess.run([FREECAD, os.path.join(HERE, "render_gt.py")],
+                   check=True, timeout=300, env=env)
+    recs = json.loads(out.read_text())["records"]
+    assert {r["view"] for r in recs} == {"iso", "front", "right", "top", "back_iso", "bottom"}
+    assert all(r["engine"] == "techdraw" for r in recs)
+    for r in recs:
+        assert os.path.exists(r["path"]) and os.path.getsize(r["path"]) > 1000
+
+
+@pytest.mark.skipif(not FREECAD, reason="freecadcmd not installed")
+def test_empty_view_warns_and_continues(tmp_path):
+    import json
+    import subprocess
+    out = tmp_path / "gt3.json"
+    env = dict(os.environ, FCP_GT_CASE="empty", FCP_GT_OUT=str(out))
+    subprocess.run([FREECAD, os.path.join(HERE, "render_gt.py")],
+                   check=True, timeout=300, env=env)
+    got = json.loads(out.read_text())
+    assert any("iso" in w for w in got["warnings"]), got["warnings"]
+    assert any(r["view"] == "front" for r in got["records"])
+
+
+def test_drawing_canvas_widens_to_fit_a_long_caption():
+    """Real bug: a 40 mm part at 5.12 px/mm clipped 'bbox ... (print orientation)'."""
+    import render_lines as rl
+    part = np.array([[0.0, 0.0], [40.0, 0.0], [40.0, 10.0], [0.0, 10.0]])
+    svg = rl.drawing([np.vstack([part, part[:1]])], part,
+                     caption=["probe - iso", "bbox 40.00 x 20.00 x 10.00 mm (print orientation)",
+                              "scale 5.12 px/mm"],
+                     minimum_px_per_mm=rl.WHOLE_PART_PX_PER_MM)
+    w, _h = rl.svg_size(svg)
+    longest = max(len(s) for s in ("probe - iso",
+                                   "bbox 40.00 x 20.00 x 10.00 mm (print orientation)",
+                                   "scale 5.12 px/mm"))
+    assert w >= longest * rl.CAPTION_PX * 0.55, "caption wider than the canvas: it will clip"

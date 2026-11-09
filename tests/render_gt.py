@@ -18,8 +18,31 @@ def case_box():
     return Part.makeBox(40, 20, 10)
 
 
+def case_six():
+    import render_lines as rl
+    out = os.path.join(os.environ["FCP_GT_OUT"] + "_views")
+    recs, warnings, timings = rl.render_part(Part.makeBox(40, 20, 10), "box",
+                                             (40, 20, 10), out)
+    return {"records": recs, "warnings": warnings, "timings": timings}
+
+
+def case_empty():
+    import render_lines as rl
+    from render_views import VIEWS
+    out = os.path.join(os.environ["FCP_GT_OUT"] + "_views")
+    recs, warnings, _timings = rl.render_part(
+        Part.makeBox(40, 20, 10), "empty", (40, 20, 10), out,
+        views={"iso": ((0.0, 0.0, 0.0), (0, 0, 1)), "front": VIEWS["front"]})
+    return {"records": recs, "warnings": warnings}
+
+
 def main(case, out):
     import render_lines as rl
+    if case in ("six", "empty"):
+        result = CASES[case]()
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump(result, f)
+        return
     shape = CASES[case]()
     doc, obj = rl.techdraw_document(shape, "gt_" + case)
     try:
@@ -37,6 +60,8 @@ def main(case, out):
 
 
 CASES["box"] = case_box
+CASES["six"] = case_six
+CASES["empty"] = case_empty
 
 
 def _args():
