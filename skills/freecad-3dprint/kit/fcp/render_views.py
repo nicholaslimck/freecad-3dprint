@@ -125,7 +125,7 @@ def render_part(name, points, facets, cat, bbox, outdir, views=None, tag=""):
         p = os.path.join(outdir, "%s%s_%s.png" % (name, tag, view))
         fig.savefig(p, bbox_inches="tight")
         plt.close(fig)
-        written.append(p)
+        written.append({"path": p, "view": view, "engine": "raster"})
     n = len(views)
     cols = 2 if n <= 4 else 3
     rows = int(math.ceil(n / float(cols)))
@@ -138,7 +138,7 @@ def render_part(name, points, facets, cat, bbox, outdir, views=None, tag=""):
     p = os.path.join(outdir, "%s%s_sheet.png" % (name, tag))
     fig.savefig(p, bbox_inches="tight")
     plt.close(fig)
-    written.insert(0, p)
+    written.insert(0, {"path": p, "view": "sheet", "engine": "raster"})
     return written
 
 
@@ -243,8 +243,8 @@ def main():
         result["error"] = traceback.format_exc()
     write_json("render_status.json", result)
     print("RENDER", "OK" if result["ok"] else "FAILED")
-    for p in result["images"]:
-        print("  " + p)
+    for rec in result["images"]:
+        print("  " + rec["path"])
     for w in result["warnings"]:
         print("  ! " + w)
     if "error" in result:

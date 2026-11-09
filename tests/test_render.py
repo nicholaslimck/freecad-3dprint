@@ -103,3 +103,20 @@ def test_drawing_caption_fits_inside_the_canvas():
     last_y = max(float(y) for y in re.findall(r'y="([\d.]+)" font', svg))
     _, h = rl.svg_size(svg)
     assert last_y < h - 2, "the last caption line is clipped by the canvas"
+
+
+def _tri_cube():
+    """A 10 mm cube as points/facets with outward normals (reuses test_fcp._box)."""
+    import test_fcp
+    return test_fcp._box((0, 0, 0), (10, 10, 10))
+
+
+def test_render_part_records_an_engine_per_image(tmp_path):
+    pytest.importorskip("matplotlib", reason="raster engine needs FreeCAD's bundled matplotlib")
+    import render_views as rv
+    pts, faces = _tri_cube()
+    bbox = (10.0, 10.0, 10.0)
+    recs = rv.render_part("t", pts, faces, None, bbox, str(tmp_path / "views"))
+    assert recs and all(set(r) == {"path", "view", "engine"} for r in recs)
+    assert all(r["engine"] == "raster" for r in recs)
+    assert {r["view"] for r in recs} == set(rv.VIEWS)

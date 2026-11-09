@@ -220,7 +220,8 @@ def _gate_fixture(accept=None, preview=None, warnings=None):
     report = {"pass": True, "design_hash": digest,
               "parts": [{"name": "part", "errors": [], "info": [],
                          "warnings": [CANTILEVER_WARNING] if warnings is None else warnings}]}
-    render = {"ok": True, "images": ["sheet.png"], "warnings": [], "design_hash": digest}
+    render = {"ok": True, "images": [{"path": "sheet.png", "view": "sheet", "engine": "raster"}],
+              "warnings": [], "design_hash": digest}
     manifest = {"sources": {"design": digest},
                 "parts": [{"name": "part", "sha256": {"3mf": "abc"}}]}
     return P, report, render, manifest
@@ -397,3 +398,11 @@ def test_manifest_hashes_each_fcp_module_once():
     lower = [n.lower() for n in names]
     assert len(lower) == len(set(lower)), "two fcp modules differ only by case: %s" % names
     assert "design_hash.py" in names and "analysis.py" in names
+
+
+def test_gate_ignores_render_images_shape():
+    P, report, render, manifest = _gate_fixture([ACCEPT], PREVIEW)
+    render["images"] = ["sheet.png"]               # an old kit's render_status.json
+    assert evaluate(P, report, render, manifest, None)["printable"]
+    render["images"] = [{"path": "s.png", "view": "bottom", "engine": "raster"}]
+    assert evaluate(P, report, render, manifest, None)["printable"]
