@@ -17,7 +17,6 @@ use the numbers from the sheet or from report.metrics.print_bbox_mm.
 Uses numpy + matplotlib (bundled with FreeCAD on Windows). Painter's-algorithm
 rendering: fine for checking shape and feature placement, not photoreal.
 """
-import math
 import os
 import sys
 import traceback
@@ -114,7 +113,7 @@ def render_view(ax, tri, cat, eye, up_hint, title=""):
     ax.grid(True, linewidth=0.3, alpha=0.4)
 
 
-def render_part(name, points, facets, cat, bbox, outdir, views=None, tag="", sheet=True):
+def render_part(name, points, facets, cat, bbox, outdir, views=None, tag=""):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -133,21 +132,6 @@ def render_part(name, points, facets, cat, bbox, outdir, views=None, tag="", she
         fig.savefig(p, bbox_inches="tight")
         plt.close(fig)
         written.append({"path": p, "view": view, "engine": "raster"})
-    if not sheet:
-        return written
-    n = len(views)
-    cols = 2 if n <= 4 else 3
-    rows = int(math.ceil(n / float(cols)))
-    fig, axes = plt.subplots(rows, cols, figsize=(7.5 * cols, 5 * rows), dpi=110, squeeze=False)
-    for ax, (view, (eye, up)) in zip(axes.flat, views.items()):
-        render_view(ax, tri, cat, eye, up, view)
-    for ax in list(axes.flat)[len(views):]:
-        ax.axis("off")
-    fig.suptitle("%s   %s   red = overhang, amber = unsupported shelf" % (name, dims), fontsize=11)
-    p = os.path.join(outdir, "%s%s_sheet.png" % (name, tag))
-    fig.savefig(p, bbox_inches="tight")
-    plt.close(fig)
-    written.insert(0, {"path": p, "view": "sheet", "engine": "raster"})
     return written
 
 
@@ -250,6 +234,43 @@ def feature_shape(shape, feat):
     return clipped
 
 
+def _clear_stale_views(outdir):
+    """Remove images written by the old single-engine layout.
+
+    Before the two-engine split, render_views wrote `<stem>_<view>.png` and
+    `<stem>_sheet.png`. Those now sit next to `<stem>_<view>_lines.png`,
+    `<stem>_support_bottom.png` and the new sheet, and a reader cannot tell
+    which are current. Everything that is not a current-layout name is removed;
+    only `.png` files are touched.
+    """
+    if not os.path.isdir(outdir):
+        return
+    for name in os.listdir(outdir):
+        stem, ext = os.path.splitext(name)
+        if ext.lower() != ".png":
+            continue
+        if _is_current_view_image(stem):
+            continue
+        try:
+            os.remove(os.path.join(outdir, name))
+        except OSError:  # noqa: BLE001 - a locked file is not worth failing the render
+            pass
+
+
+def _is_current_view_image(stem):
+    """True for a name the current renderer writes: <stem>_<view>_lines or <stem>_support_bottom.
+
+    ponytail: a name-suffix allowlist. If the output naming changes again, update
+    this one function; a manifest of written files would be the upgrade, but the
+    renderer would then have to read its own previous manifest to know what to
+    delete, which is more moving parts than this is worth today.
+    """
+    for suffix in ("_lines", "_support_bottom"):
+        if stem.endswith(suffix):
+            return True
+    return stem.endswith("_sheet")       # the current sheet reuses the old name
+
+
 def main():
     import Part
     from analysis import design_hash
@@ -257,6 +278,7 @@ def main():
     from cadlib import load_params, mesh_from_shape, out_dir, print_oriented, read_json, write_json
 
     P = load_params()
+    _clear_stale_views(os.path.join(out_dir(), "views"))
     result = {"ok": False, "images": [], "warnings": [], "timings": [],
               "design_hash": design_hash(P)}
     try:
@@ -284,7 +306,7 @@ def main():
             # support: the flat raster classification, bottom view only
             support_records = render_part(
                 stem, points, facets, part_cats, bbox, outdir,
-                views=SUPPORT_VIEWS, tag="_support", sheet=False)
+                views=SUPPORT_VIEWS, tag="_support")
 
             ordered = shape_records + support_records
             sheet_path = os.path.join(outdir, "%s_sheet.png" % stem)
@@ -321,7 +343,7 @@ def main():
                     fcats = map_categories(points, facets, part_cats, fpoints, ffacets)
                     fsup = render_part(
                         stem, fpoints, ffacets, fcats, fbox, outdir,
-                        views=FEATURE_SUPPORT_VIEWS, tag=ftag + "_support", sheet=False)
+                        views=FEATURE_SUPPORT_VIEWS, tag=ftag + "_support")
                     result["images"] += fshape + fsup
                 except Exception as exc:  # noqa: BLE001 - one bad feature must not lose the sheet
                     result["warnings"].append("feature render %s failed: %s" % (feat.get("name"), exc))

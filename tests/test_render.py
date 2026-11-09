@@ -302,3 +302,20 @@ def test_sheet_states_both_engines(tmp_path):
     got = json.loads(out.read_text())
     assert "techdraw" in got["footer"].lower() and "raster" in got["footer"].lower()
     assert os.path.getsize(got["sheet"]) > 5000
+
+
+def test_stale_old_layout_images_are_removed_and_new_ones_kept(tmp_path):
+    """Old <stem>_<view>.png sat next to <stem>_<view>_lines.png and read as current."""
+    import render_views as rv
+    d = tmp_path / "views"
+    d.mkdir()
+    old = ["case_iso.png", "case_bottom.png", "case_right.png", "case_latch.png"]
+    keep_new = ["case_iso_lines.png", "case_support_bottom.png", "case_sheet.png"]
+    for n in old + keep_new:
+        (d / n).write_bytes(b"x")
+    (d / "notes.txt").write_bytes(b"x")
+    rv._clear_stale_views(str(d))
+    left = set(os.listdir(d))
+    assert not any(n in left for n in old), "old-layout images survived: %s" % sorted(left)
+    assert set(keep_new) <= left, "current-layout images were deleted: %s" % sorted(left)
+    assert "notes.txt" in left, "cleanup must only touch PNGs"
