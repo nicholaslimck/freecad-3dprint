@@ -9,6 +9,10 @@ VIEW_PX = 700                    # nominal long edge of a whole-part panel
 STROKE_PX = 2.0                  # stroke floor, in pixels; never thinner
 STROKE_PX_PER_DECADE = 1.6       # how much the stroke grows per 10x zoom
 WHOLE_PART_PX_PER_MM = 130 / 25.4    # ~5.12: today's 130 dpi, in view space
+# The contact sheet scales every panel to one cell width, so a panel drawn at
+# 5.12 px/mm on a 137 mm part (700 px) is upscaled and soft. Shape panels are
+# drawn at least this wide.
+WHOLE_PART_MIN_PX = 1100
 FEATURE_MIN_PX_PER_MM = 20.0     # 0.4 mm * 20 = 8 px
 
 
@@ -63,6 +67,16 @@ CAPTION_PX = 13.0          # caption line height, output pixels
 CAPTION_PAD_PX = 6.0       # gap between the drawing and the first caption line
 
 
+def _drawing_ppm(part_xy, minimum):
+    """The scale `drawing()` uses: the caller's floor, the whole-part floor, or the sharpness floor."""
+    part = _as_xy(part_xy)
+    ppm = max(float(minimum), WHOLE_PART_PX_PER_MM)
+    span = float(max(part.max(axis=0) - part.min(axis=0))) if len(part) else 0.0
+    if span > 0:
+        ppm = max(ppm, WHOLE_PART_MIN_PX / span)   # stay sharp once the sheet upscales
+    return ppm
+
+
 def drawing(polylines, part_xy, caption, section_text=None, minimum_px_per_mm=WHOLE_PART_PX_PER_MM):
     """Complete SVG text for one view: white background, black strokes, caption under it.
 
@@ -73,10 +87,7 @@ def drawing(polylines, part_xy, caption, section_text=None, minimum_px_per_mm=WH
     import html
 
     part = _as_xy(part_xy)
-    # the panel is sized by the part it shows; minimum_px_per_mm IS the scale.
-    # (px_per_mm's VIEW_PX/span term answers "fit a whole part to 700 px", which
-    # is decided by the caller passing WHOLE_PART_PX_PER_MM, not here.)
-    ppm = max(float(minimum_px_per_mm), WHOLE_PART_PX_PER_MM)
+    ppm = _drawing_ppm(part, minimum_px_per_mm)
     x0, y0, w, h, _pad = viewport(part, part)
     w_px = max(1, int(round(w * ppm)))
     h_px = max(1, int(round(h * ppm)))
@@ -286,8 +297,9 @@ def render_part(shape, name, bbox, outdir, views=None, tag="", section_text=None
                     continue
                 polys = [_edge_polyline(e) for e in edges]
                 part_xy = _polys_bounds(polys)
+                actual_ppm = _effective_ppm(part_xy, minimum)
                 caption = ["%s%s - %s" % (name, tag, view), dims,
-                           "scale %.2f px/mm" % max(minimum, WHOLE_PART_PX_PER_MM)]
+                           "scale %.2f px/mm" % actual_ppm]
                 svg = drawing(polys, part_xy, caption=caption, section_text=section_text,
                               minimum_px_per_mm=minimum)
                 path = os.path.join(outdir, "%s%s_%s_lines.png" % (name, tag, view))
@@ -310,3 +322,75 @@ def _edge_polyline(edge, n=48):
 def _polys_bounds(polys):
     import numpy as np
     return np.vstack([p for p in polys if len(p)]) if polys else np.zeros((0, 2))
+
+
+def _effective_ppm(part_xy, minimum):
+    """The scale `drawing()` will use: the caller's floor, the whole-part floor, or the sharpness floor."""
+    return _drawing_ppm(part_xy, minimum)
+
+
+# ---------------------------------------------------------------- contact sheet
+ENGINE_FOOTER = ("shape: TechDraw line art | support: flat raster classification "
+                 "(bottom view only)")
+SHEET_PANEL_PX = 420      # widest panel on the sheet
+SHEET_PAD_PX = 8
+
+
+def sheet_grid(n_panels):
+    """(cols, rows) for a contact sheet, matching render_views' old layout."""
+    import math
+    cols = 2 if n_panels <= 4 else 3
+    return cols, max(1, int(math.ceil(n_panels / float(cols))))
+
+
+def contact_sheet(panels, path, title, footer):
+    """Composite panel PNGs into one sheet SVG, rasterise to `path`, return `path`.
+
+    Panels are embedded as base64 so the sheet is one self-contained file that
+    survives the workspace being moved.
+    """
+    import base64
+    import html
+    import io
+    import struct
+
+    cells = []
+    for p in panels:
+        with open(p, "rb") as f:
+            raw = f.read()
+        w, h = struct.unpack(">II", raw[16:24])       # PNG IHDR width/height
+        cells.append((base64.b64encode(raw).decode("ascii"), w, h))
+
+    cols, rows = sheet_grid(max(1, len(cells)))
+    cell_w = SHEET_PANEL_PX
+    cell_h = int(SHEET_PANEL_PX * 0.8)
+    head_h = 26
+    foot_h = 18
+    for _, w, h in cells:                                  # one tall panel sets the row height
+        cell_h = max(cell_h, int(cell_w * h / float(w)) if w else cell_h)
+    sheet_w = cols * cell_w + (cols + 1) * SHEET_PAD_PX
+    sheet_h = head_h + rows * cell_h + (rows + 1) * SHEET_PAD_PX + foot_h
+
+    parts = ['<rect x="0" y="0" width="%d" height="%d" fill="#ffffff"/>'
+             % (sheet_w, sheet_h),
+             '<text x="%d" y="18" font-family="sans-serif" font-size="15" fill="#000000">%s</text>'
+             % (SHEET_PAD_PX, html.escape(str(title)))]
+    for i, (b64, w, h) in enumerate(cells):
+        r, c = divmod(i, cols)
+        x = SHEET_PAD_PX + c * (cell_w + SHEET_PAD_PX)
+        y = head_h + SHEET_PAD_PX + r * (cell_h + SHEET_PAD_PX)
+        draw_w = cell_w
+        draw_h = int(cell_w * h / float(w)) if w else cell_h
+        offset = (cell_h - draw_h) / 2.0
+        parts.append('<image x="%d" y="%.1f" width="%d" height="%d" '
+                     'xlink:href="data:image/png;base64,%s"/>'
+                     % (x, y + offset, draw_w, draw_h, b64))
+    parts.append('<text x="%d" y="%d" font-family="sans-serif" font-size="12" fill="#444444">%s</text>'
+                 % (SHEET_PAD_PX, sheet_h - 5, html.escape(str(footer))))
+
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" '
+           'xmlns:xlink="http://www.w3.org/1999/xlink" width="%d" height="%d" '
+           'viewBox="0 0 %d %d">\n%s\n</svg>\n'
+           % (sheet_w, sheet_h, sheet_w, sheet_h, "\n".join(parts)))
+    rasterise(svg, path)
+    return path

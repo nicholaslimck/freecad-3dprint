@@ -85,14 +85,17 @@ def test_drawing_with_no_edges_still_produces_a_captioned_svg():
 
 
 def test_drawing_panel_is_sized_by_the_part_not_fitted_to_view_px():
-    """A 10 mm part at 20 px/mm is ~216 px, not 756: the scale floor is authoritative."""
+    """The panel follows the part's span, so a whole part and a coupon do not converge."""
     import render_lines as rl
-    part = np.array([[0.0, 0.0], [10.0, 5.0]])
-    svg = rl.drawing([np.array([[0.0, 0.0], [10.0, 0.0]])], part, caption=["x"],
-                     minimum_px_per_mm=20.0)
-    w, h = rl.svg_size(svg)
-    assert w < 300, "panel was fitted to VIEW_PX instead of the part's own scale"
-    assert w >= int(10.0 * 20.0)
+    small = np.array([[0.0, 0.0], [10.0, 5.0]])
+    big = np.array([[0.0, 0.0], [137.0, 100.0]])
+    w_small, _ = rl.svg_size(rl.drawing([], small, caption=["x"], minimum_px_per_mm=20.0))
+    w_big, _ = rl.svg_size(rl.drawing([], big, caption=["x"],
+                                      minimum_px_per_mm=rl.WHOLE_PART_PX_PER_MM))
+    # both are at least the sharpness floor, and the big part is not fitted to VIEW_PX
+    assert w_small >= rl.WHOLE_PART_MIN_PX * 0.9
+    assert w_big >= rl.WHOLE_PART_MIN_PX * 0.9
+    assert w_big < rl.VIEW_PX * 3, "panel was fitted to VIEW_PX instead of the part's own scale"
 
 
 def test_drawing_caption_fits_inside_the_canvas():
@@ -279,3 +282,23 @@ def test_drawing_canvas_widens_to_fit_a_long_caption():
                                    "bbox 40.00 x 20.00 x 10.00 mm (print orientation)",
                                    "scale 5.12 px/mm"))
     assert w >= longest * rl.CAPTION_PX * 0.55, "caption wider than the canvas: it will clip"
+
+
+def test_sheet_grid_matches_the_old_layout():
+    import render_lines as rl
+    assert rl.sheet_grid(7) == (3, 3)
+    assert rl.sheet_grid(4) == (2, 2)
+    assert rl.sheet_grid(1) == (2, 1)
+
+
+@pytest.mark.skipif(not FREECAD, reason="freecadcmd not installed")
+def test_sheet_states_both_engines(tmp_path):
+    import json
+    import subprocess
+    out = tmp_path / "gt4.json"
+    env = dict(os.environ, FCP_GT_CASE="sheet", FCP_GT_OUT=str(out))
+    subprocess.run([FREECAD, os.path.join(HERE, "render_gt.py")],
+                   check=True, timeout=300, env=env)
+    got = json.loads(out.read_text())
+    assert "techdraw" in got["footer"].lower() and "raster" in got["footer"].lower()
+    assert os.path.getsize(got["sheet"]) > 5000

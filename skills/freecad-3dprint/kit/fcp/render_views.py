@@ -114,7 +114,7 @@ def render_view(ax, tri, cat, eye, up_hint, title=""):
     ax.grid(True, linewidth=0.3, alpha=0.4)
 
 
-def render_part(name, points, facets, cat, bbox, outdir, views=None, tag=""):
+def render_part(name, points, facets, cat, bbox, outdir, views=None, tag="", sheet=True):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -133,6 +133,8 @@ def render_part(name, points, facets, cat, bbox, outdir, views=None, tag=""):
         fig.savefig(p, bbox_inches="tight")
         plt.close(fig)
         written.append({"path": p, "view": view, "engine": "raster"})
+    if not sheet:
+        return written
     n = len(views)
     cols = 2 if n <= 4 else 3
     rows = int(math.ceil(n / float(cols)))
@@ -251,10 +253,12 @@ def feature_shape(shape, feat):
 def main():
     import Part
     from analysis import design_hash
+    import render_lines
     from cadlib import load_params, mesh_from_shape, out_dir, print_oriented, read_json, write_json
 
     P = load_params()
-    result = {"ok": False, "images": [], "warnings": [], "design_hash": design_hash(P)}
+    result = {"ok": False, "images": [], "warnings": [], "timings": [],
+              "design_hash": design_hash(P)}
     try:
         status = read_json("build_status.json")
         if not status or not status.get("ok"):
@@ -267,26 +271,58 @@ def main():
             points = np.array([[p.x, p.y, p.z] for p in pts])
             facets = np.array(facets, dtype=int)
             bb = s.BoundBox
+            bbox = (bb.XLength, bb.YLength, bb.ZLength)
+            outdir = os.path.join(out_dir(), "views")
             part_cats = part_categories(s, P, points, facets)   # once per part, reused below
-            result["images"] += render_part(
-                stem, points, facets, part_cats,
-                (bb.XLength, bb.YLength, bb.ZLength), os.path.join(out_dir(), "views"),
-                views=SUPPORT_VIEWS)
+
+            # shape: TechDraw line art
+            shape_records, shape_warnings, timings = render_lines.render_part(
+                s, stem, bbox, outdir)
+            result["warnings"] += shape_warnings
+            result["timings"] += timings
+
+            # support: the flat raster classification, bottom view only
+            support_records = render_part(
+                stem, points, facets, part_cats, bbox, outdir,
+                views=SUPPORT_VIEWS, tag="_support", sheet=False)
+
+            ordered = shape_records + support_records
+            sheet_path = os.path.join(outdir, "%s_sheet.png" % stem)
+            render_lines.contact_sheet(
+                [r["path"] for r in ordered], sheet_path,
+                "%s   bbox %.2f x %.2f x %.2f mm   red = overhang, amber = unsupported shelf"
+                % ((stem,) + bbox),
+                render_lines.ENGINE_FOOTER)
+            result["images"] += [{"path": sheet_path, "view": "sheet", "engine": "mixed"}]
+            result["images"] += ordered
+            result["engine_footer"] = render_lines.ENGINE_FOOTER
 
             for feat in P.get("render", {}).get("features", []):
                 try:
                     fs = feature_shape(s, feat)
+                    fbb = fs.BoundBox
+                    fbox = (fbb.XLength, fbb.YLength, fbb.ZLength)
+                    ftag = "_" + str(feat["name"])
+                    sec = feat.get("section")
+                    sec_text = ("section: %s=%.2f mm" % (sec["axis"], float(sec["at_mm"]))
+                                if sec else None)
+                    # shape: line art at the feature's OWN span (BC5), never the part's
+                    fshape, fwarn, ftime = render_lines.render_part(
+                        fs, stem, fbox, outdir, views=render_lines.FEATURE_SHAPE_VIEWS,
+                        tag=ftag, section_text=sec_text, feature=True)
+                    result["warnings"] += fwarn
+                    result["timings"] += ftime
+
+                    # support: whole-part categories mapped onto the coupon
                     fmesh = mesh_from_shape(fs, P, linear=0.02, angular_deg=8)
                     fpts, ffacets = fmesh.Topology
                     fpoints = np.array([[p.x, p.y, p.z] for p in fpts])
                     ffacets = np.array(ffacets, dtype=int)
-                    fbb = fs.BoundBox
-                    # whole-part categories, mapped onto the coupon (never re-classified)
                     fcats = map_categories(points, facets, part_cats, fpoints, ffacets)
-                    result["images"] += render_part(
-                        stem, fpoints, ffacets, fcats,
-                        (fbb.XLength, fbb.YLength, fbb.ZLength), os.path.join(out_dir(), "views"),
-                        views=FEATURE_SUPPORT_VIEWS, tag="_" + str(feat["name"]))
+                    fsup = render_part(
+                        stem, fpoints, ffacets, fcats, fbox, outdir,
+                        views=FEATURE_SUPPORT_VIEWS, tag=ftag + "_support", sheet=False)
+                    result["images"] += fshape + fsup
                 except Exception as exc:  # noqa: BLE001 - one bad feature must not lose the sheet
                     result["warnings"].append("feature render %s failed: %s" % (feat.get("name"), exc))
         result["ok"] = True

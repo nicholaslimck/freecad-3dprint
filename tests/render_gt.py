@@ -36,9 +36,19 @@ def case_empty():
     return {"records": recs, "warnings": warnings}
 
 
+def case_sheet():
+    import render_lines as rl
+    out = os.environ["FCP_GT_OUT"] + "_views"
+    recs, _warnings, _timings = rl.render_part(Part.makeBox(40, 20, 10), "box",
+                                               (40, 20, 10), out)
+    sheet = rl.contact_sheet([r["path"] for r in recs], os.path.join(out, "box_sheet.png"),
+                             "box   bbox 40.00 x 20.00 x 10.00 mm", rl.ENGINE_FOOTER)
+    return {"sheet": sheet, "footer": rl.ENGINE_FOOTER, "records": recs}
+
+
 def main(case, out):
     import render_lines as rl
-    if case in ("six", "empty"):
+    if case in ("six", "empty", "sheet"):
         result = CASES[case]()
         with open(out, "w", encoding="utf-8") as f:
             json.dump(result, f)
@@ -62,6 +72,7 @@ def main(case, out):
 CASES["box"] = case_box
 CASES["six"] = case_six
 CASES["empty"] = case_empty
+CASES["sheet"] = case_sheet
 
 
 def _args():
