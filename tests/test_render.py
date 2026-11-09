@@ -125,6 +125,76 @@ def test_whole_part_raster_renders_only_the_bottom_view(tmp_path):
     assert {r["view"] for r in recs} == {"bottom"}
 
 
+def test_bottom_view_is_not_mirrored():
+    """Looking up must keep +X on the right, as the top view does.
+
+    The basis is right = up x eye. With eye=-Z and up=+Y that gives right=-X, so
+    the support map came out reflected: everything at the part's +X end (vents,
+    a feature on one wall) showed on the left. The view is plausible at a glance
+    on a near-symmetric case, which is why this needs pinning.
+    """
+    import render_views as rv
+    _, right_bottom, up_bottom = rv.camera(*rv.VIEWS["bottom"])
+    _, right_top, up_top = rv.camera(*rv.VIEWS["top"])
+    np.testing.assert_allclose(right_bottom, [1.0, 0.0, 0.0], atol=1e-9)
+    np.testing.assert_allclose(right_bottom, right_top, atol=1e-9)
+    np.testing.assert_allclose(up_bottom, -up_top, atol=1e-9)
+
+
+def test_both_render_engines_agree_on_the_bottom_view():
+    """shape (TechDraw) and support (raster) are defined in separate view tables.
+
+    Fixing one left the other mirrored, and the contact sheet then showed the two
+    panels of the same face with the part reversed. Pin the tables to each other
+    rather than to the constant, so a future edit to either is caught.
+    """
+    import render_lines as rl
+    import render_views as rv
+    assert rl.SIX_VIEWS["bottom"] == rv.VIEWS["bottom"], (
+        "render_lines.SIX_VIEWS['bottom'] and render_views.VIEWS['bottom'] disagree; "
+        "the sheet would show the same face with opposite handedness")
+
+    for name, (eye, up) in (("techdraw", rl.SIX_VIEWS["bottom"]), ("raster", rv.VIEWS["bottom"])):
+        ex, upx = np.asarray(eye, float), np.asarray(up, float)
+        right = np.cross(upx, ex)          # both engines: XDirection = up x eye
+        assert right[0] > 0, "%s bottom view has +X pointing left (mirrored)" % name
+
+
+def test_bottom_render_puts_a_positive_x_feature_on_the_right(tmp_path):
+    """End-to-end: read the rendered PNG and check the bigger face is on the right.
+
+    Guards the picture itself, not just the basis, so a sign flip anywhere in the
+    projection (not only the up hint) fails. Two downward faces sit either side of
+    x=0, and they are deliberately different widths so the two halves are not
+    symmetric — with equal faces a mirrored image would measure identically.
+    The part's bbox is those faces, so x=0 is the centre of the drawn span.
+    """
+    pytest.importorskip("matplotlib", reason="raster engine needs FreeCAD's bundled matplotlib")
+    import matplotlib.image as mpimg
+
+    import render_views as rv
+
+    left = [[-8.0, -2.0, 0.0], [-3.0, -2.0, 0.0], [-5.5, 2.0, 0.0]]    # 5 mm wide
+    right = [[2.0, -2.0, 0.0], [4.0, -2.0, 0.0], [3.0, 2.0, 0.0]]      # 2 mm wide
+    pts = np.array(left[::-1] + right[::-1], float)      # reversed: normals point -Z
+    faces = np.array([[0, 1, 2], [3, 4, 5]])
+
+    recs = rv.render_part("mirror", pts, faces, None, (10.0, 10.0, 1.0), str(tmp_path),
+                          views=rv.SUPPORT_VIEWS)
+    img = mpimg.imread(recs[0]["path"])
+    if img.shape[2] == 4:
+        img = img[:, :, :3]
+    blue = (img[:, :, 2] > 0.75) & (img[:, :, 0] < 0.6) & (img[:, :, 1] > 0.5)
+    cols = np.flatnonzero(blue.any(axis=0))
+    assert len(cols) > 20, "nothing rendered"
+    centre = int((cols.min() + cols.max()) / 2)
+    left_half = int(blue[:, :centre].sum())
+    right_half = int(blue[:, centre:].sum())
+    assert left_half > right_half, (
+        "the wide -X face rendered on the RIGHT of the image: the bottom view is "
+        "mirrored (left half %d px vs right half %d px)" % (left_half, right_half))
+
+
 def _classify_stub(shape, points, facets, cent, nrm, area, zmin, P):
     """Support-aware stub: an unsupported flat-down facet is one with nothing below it.
 
@@ -377,3 +447,19 @@ def test_feature_box_only_applies_to_the_part_it_names():
              {"name": "any", "bbox_mm": [[0, 0, 0], [1, 1, 1]]}]
     assert [f["name"] for f in rv.features_for("base", feats)] == ["hook", "any"]
     assert [f["name"] for f in rv.features_for("snap_coupon", feats)] == ["any"]
+
+
+def test_scoped_features_still_render_when_a_version_is_set():
+    """The call main() makes must pass the part name, not the output stem.
+
+    build_status records `name` ("base") and `stem` ("base_v1"). main() was
+    passing the stem, so with params.version set every part-scoped feature
+    matched nothing and was skipped without a warning -- the close-ups vanished
+    and the sheet still claimed success.
+    """
+    import render_views as rv
+    feats = [{"name": "ports", "part": "base", "bbox_mm": [[0, 0, 0], [1, 1, 1]]}]
+    rec = {"name": "base", "stem": "base_v1"}
+    assert rv.features_for(rec["name"], feats) == feats
+    # the bug, pinned: the stem is not a part name
+    assert rv.features_for(rec["stem"], feats) == []
