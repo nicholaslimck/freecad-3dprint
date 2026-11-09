@@ -97,4 +97,5 @@ def test_probe_against_a_plain_http_server_says_not_xmlrpc():
     finally:
         srv.shutdown()
     assert got["available"] is False
-    assert got["reason"].startswith(("not an XML-RPC server", "timed out")), got["reason"]
+    assert got["reason"].startswith("not an XML-RPC server"), (
+        "a real listening socket must answer, not time out: %s" % got["reason"])

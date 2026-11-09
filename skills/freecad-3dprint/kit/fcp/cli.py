@@ -29,16 +29,20 @@ def should_run(module_name, stack):
     return not any(fr.frame.f_globals.get("__name__") == "__main__" for fr in stack)
 
 
-def main_calls(module_name=None, _stack=None):
+def main_calls(module_name, _stack=None):
+    """Whether the script that owns `module_name` should run its main().
+
+    `module_name` is REQUIRED. There is no frame-walking fallback: `run` is
+    always the immediate caller, so a fallback would inspect cli's own globals
+    and answer with the calling script's module name only by luck. Omitting the
+    argument must be a TypeError at import, never a silent re-run of main().
+    """
     if os.environ.get("FCP_NO_MAIN"):
         return False
-    if module_name is None:
-        import sys
-        module_name = sys._getframe(1).f_globals.get("__name__")
     return should_run(module_name, _stack if _stack is not None else inspect.stack())
 
 
-def run(main, module_name=None, _stack=None):
+def run(main, module_name, _stack=None):
     """Run `main` when this file is the entry point; do nothing when imported."""
     if main_calls(module_name, _stack):
         main()

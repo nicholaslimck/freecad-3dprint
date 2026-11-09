@@ -92,22 +92,6 @@ def test_freecadcmd_really_runs_the_script_and_python_does_not_on_import(tmp_pat
     assert "MAIN_RAN" not in (out.stdout + out.stderr)       # override wins
 
 
-def test_run_calls_main_when_freecad_executes_the_file(monkeypatch):
-    monkeypatch.setattr(cli, "main_calls", lambda *a, **k: True)
-    monkeypatch.delenv("FCP_NO_MAIN", raising=False)
-    CALLED.clear()
-    cli.run(_main)
-    assert CALLED == [1]
-
-
-def test_run_is_silent_on_import(monkeypatch):
-    monkeypatch.setattr(cli, "main_calls", lambda *a, **k: False)
-    monkeypatch.delenv("FCP_NO_MAIN", raising=False)
-    CALLED.clear()
-    cli.run(_main)
-    assert CALLED == []
-
-
 def test_fcp_no_main_wins_over_everything(monkeypatch):
     monkeypatch.setenv("FCP_NO_MAIN", "1")
     CALLED.clear()
@@ -148,3 +132,11 @@ def test_check_print_module_helper_restores_the_previous_value(monkeypatch):
     monkeypatch.setenv("FCP_NO_MAIN", "0")
     render_views._check_print_module()
     assert os.environ["FCP_NO_MAIN"] == "0"
+
+
+def test_run_without_module_name_is_a_loud_type_error():
+    """C3: a tail that forgets module_name must fail at import, never re-run main on import."""
+    CALLED.clear()
+    with pytest.raises(TypeError):
+        cli.run(_main)
+    assert CALLED == []

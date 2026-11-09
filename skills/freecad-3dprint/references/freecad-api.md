@@ -193,9 +193,10 @@ run(main, module_name=__name__)
 ```
 
 `run` calls `main()` when FreeCAD executed the file, does nothing when the module
-was imported, and honours `FCP_NO_MAIN`. **`module_name=__name__` is not
-optional**: without it `run` falls back to a frame walk, whose immediate caller is
-`run` itself in `cli`, so it answers `'cli'` and nothing ever runs.
+was imported, and honours `FCP_NO_MAIN`. **`module_name` is a required argument.**
+Leave it out and `run` raises `TypeError` at import time, which is the point: there
+is no fallback, because any fallback would have to guess the caller from a stack
+frame whose immediate caller is `run` itself.
 
 Neither `__name__` nor `__spec__`/`importlib.util.find_spec` can tell "FreeCAD ran
 this file" from "a user's build.py imported it": FreeCAD imports the file, so it

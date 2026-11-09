@@ -131,8 +131,7 @@ def test_whole_part_raster_renders_only_the_bottom_view(tmp_path):
     pts, faces = _tri_cube()
     recs = rv.render_part("t", pts, faces, None, (10.0, 10.0, 10.0), str(tmp_path),
                           views=rv.SUPPORT_VIEWS)
-    views = {r["view"] for r in recs} - {"sheet"}
-    assert views == {"bottom"}
+    assert {r["view"] for r in recs} == {"bottom"}
 
 
 def _classify_stub(shape, points, facets, cent, nrm, area, zmin, P):
@@ -304,18 +303,69 @@ def test_sheet_states_both_engines(tmp_path):
     assert os.path.getsize(got["sheet"]) > 5000
 
 
-def test_stale_old_layout_images_are_removed_and_new_ones_kept(tmp_path):
-    """Old <stem>_<view>.png sat next to <stem>_<view>_lines.png and read as current."""
+def test_cleanup_only_removes_names_the_previous_render_wrote(tmp_path):
+    """C1: another part's panels, a user's screenshot and a legacy sheet must survive."""
+    import json
     import render_views as rv
     d = tmp_path / "views"
     d.mkdir()
-    old = ["case_iso.png", "case_bottom.png", "case_right.png", "case_latch.png"]
-    keep_new = ["case_iso_lines.png", "case_support_bottom.png", "case_sheet.png"]
-    for n in old + keep_new:
+    # what the previous render wrote (old layout, part A only)
+    old = tmp_path / ".out" / "render_status.json"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_text(json.dumps({"images": ["views/a_iso.png", "views/a_bottom.png"]}))
+    files = {
+        "a_iso.png": True,            # was in the previous render, no longer produced
+        "a_bottom.png": True,         # was in the previous render, no longer produced
+        "b_iso_lines.png": False,     # another part's panel: never delete
+        "b_sheet.png": False,         # another part's sheet: never delete
+        "my_screenshot.png": False,   # the user's own file: never delete
+        "notes.txt": False,
+    }
+    for n in files:
         (d / n).write_bytes(b"x")
-    (d / "notes.txt").write_bytes(b"x")
-    rv._clear_stale_views(str(d))
+    rv._clear_stale_views(str(d), old_path=str(old), keep=set())
     left = set(os.listdir(d))
-    assert not any(n in left for n in old), "old-layout images survived: %s" % sorted(left)
-    assert set(keep_new) <= left, "current-layout images were deleted: %s" % sorted(left)
-    assert "notes.txt" in left, "cleanup must only touch PNGs"
+    assert "a_iso.png" not in left and "a_bottom.png" not in left, sorted(left)
+    for n in ("b_iso_lines.png", "b_sheet.png", "my_screenshot.png", "notes.txt"):
+        assert n in left, "%s was deleted but this render did not write it: %s" % (n, sorted(left))
+
+
+def test_cleanup_keeps_a_name_the_new_render_produced(tmp_path):
+    import json
+    import render_views as rv
+    d = tmp_path / "views"
+    d.mkdir()
+    old = tmp_path / ".out" / "render_status.json"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_text(json.dumps({"images": ["views/a_bottom.png"]}))
+    (d / "a_bottom.png").write_bytes(b"x")
+    rv._clear_stale_views(str(d), old_path=str(old), keep={"a_bottom.png"})
+    assert "a_bottom.png" in os.listdir(d), "deleted a file the new render still writes"
+
+
+def test_cleanup_tolerates_a_legacy_string_image_list(tmp_path):
+    import json
+    import render_views as rv
+    d = tmp_path / "views"
+    d.mkdir()
+    old = tmp_path / ".out" / "render_status.json"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_text(json.dumps({"images": ["views/a_iso.png"]}))     # strings, old kit
+    (d / "a_iso.png").write_bytes(b"x")
+    rv._clear_stale_views(str(d), old_path=str(old), keep=set())
+    assert "a_iso.png" not in os.listdir(d)
+
+
+def test_a_section_without_an_axis_is_rejected_not_defaulted():
+    """C2: a missing axis must not silently become a Z cut labelled 'section: 10.00 mm'."""
+    import render_views as rv
+    with pytest.raises(ValueError, match="axis"):
+        rv.feature_shape(None, {"name": "lip", "bbox_mm": [[0, 0, 0], [10, 10, 10]],
+                                "section": {"at_mm": 5.0}})
+
+
+def test_a_section_with_an_unknown_axis_is_rejected():
+    import render_views as rv
+    with pytest.raises(ValueError, match="axis"):
+        rv.feature_shape(None, {"name": "lip", "bbox_mm": [[0, 0, 0], [10, 10, 10]],
+                                "section": {"axis": "w", "at_mm": 5.0}})

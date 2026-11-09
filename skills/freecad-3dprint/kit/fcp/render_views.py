@@ -1,8 +1,9 @@
 """Support-map renders. Run with:  FreeCADCmd.exe fcp\\render_views.py
 
 This module draws ONLY the bottom (bed-facing) support map; shape views come
-from render_lines.py. Writes, per part, .out/views/<stem>_bottom.png and a
-one-panel sheet .out/views/<stem>_sheet.png. Views are in PRINT orientation
+from render_lines.py, and main() below composes both engines' panels into the
+single contact sheet. Writes, per part, .out/views/<stem>_support_bottom.png.
+Views are in PRINT orientation
 (Z up = away from the bed). Steep overhangs are red; flat down faces classified
 as cantilever or unsupported are amber, so the bottom view doubles as a support
 map.
@@ -15,7 +16,9 @@ The feature bbox is in PRINT orientation (after print.rotate), not design coordi
 use the numbers from the sheet or from report.metrics.print_bbox_mm.
 
 Uses numpy + matplotlib (bundled with FreeCAD on Windows). Painter's-algorithm
-rendering: fine for checking shape and feature placement, not photoreal.
+rendering: adequate here because this engine only ever draws a flat downward
+classification, where centroid-order depth errors cannot reorder anything. It is
+not used for shape views - those come from TechDraw.
 """
 import os
 import sys
@@ -214,15 +217,15 @@ def map_categories(src_points, src_facets, src_cat, dst_points, dst_facets):
 
 def feature_shape(shape, feat, apply_section=True):
     """Clip to the feature box, then (unless apply_section is False) keep the low side of the section plane."""
-    from cadlib import section
-
     lo, hi = [list(map(float, corner)) for corner in feat["bbox_mm"]]
-    clipped = section(shape, lo, hi)
     sec = feat.get("section") if apply_section else None
+    # Validate the section BEFORE touching the solid: a typo must fail fast, and
+    # must never be silently defaulted to one axis and labelled as another.
     if sec:
-        axis = str(sec.get("axis", "y")).lower()
+        axis = str(sec.get("axis", "")).lower()
         if axis not in ("x", "y", "z"):
-            raise ValueError("render.features[%s].section.axis must be x, y or z" % feat.get("name"))
+            raise ValueError("render.features[%s].section.axis must be x, y or z, got %r"
+                             % (feat.get("name"), sec.get("axis")))
         at = float(sec["at_mm"])
         i = "xyz".index(axis)
         hi2 = list(hi)
@@ -230,45 +233,60 @@ def feature_shape(shape, feat, apply_section=True):
         if hi2[i] <= lo[i]:
             raise ValueError("render.features[%s].section.at_mm is outside the feature bbox"
                              % feat.get("name"))
+
+    from cadlib import section
+
+    clipped = section(shape, lo, hi)
+    if sec:
         clipped = section(clipped, lo, hi2)
     return clipped
 
 
-def _clear_stale_views(outdir):
-    """Remove images written by the old single-engine layout.
+def _clear_stale_views(outdir, old_path=None, keep=()):
+    """Remove images the PREVIOUS render wrote and this one did not.
 
-    Before the two-engine split, render_views wrote `<stem>_<view>.png` and
-    `<stem>_sheet.png`. Those now sit next to `<stem>_<view>_lines.png`,
-    `<stem>_support_bottom.png` and the new sheet, and a reader cannot tell
-    which are current. Everything that is not a current-layout name is removed;
-    only `.png` files are touched.
+    Record-driven on purpose. The renderer only ever deletes a path it can prove
+    it wrote last time (from the previous `render_status.json`), and never one
+    this run is about to write or has already written. Anything else in the
+    folder - another part's panels, a screenshot the user saved, an old sheet
+    from a different layout - is left alone. Deleting by filename convention
+    would eventually eat a user's file.
     """
     if not os.path.isdir(outdir):
         return
-    for name in os.listdir(outdir):
-        stem, ext = os.path.splitext(name)
-        if ext.lower() != ".png":
+    if old_path is None:
+        old_path = os.path.join(os.path.dirname(outdir), "render_status.json")
+    keep = {os.path.basename(p) for p in keep}
+    for name in _previous_render_images(old_path):
+        base = os.path.basename(name)
+        if base in keep:
             continue
-        if _is_current_view_image(stem):
+        target = os.path.join(outdir, base)
+        if not os.path.isfile(target):
+            continue
+        if os.path.splitext(base)[1].lower() != ".png":
             continue
         try:
-            os.remove(os.path.join(outdir, name))
+            os.remove(target)
         except OSError:  # noqa: BLE001 - a locked file is not worth failing the render
             pass
 
 
-def _is_current_view_image(stem):
-    """True for a name the current renderer writes: <stem>_<view>_lines or <stem>_support_bottom.
-
-    ponytail: a name-suffix allowlist. If the output naming changes again, update
-    this one function; a manifest of written files would be the upgrade, but the
-    renderer would then have to read its own previous manifest to know what to
-    delete, which is more moving parts than this is worth today.
-    """
-    for suffix in ("_lines", "_support_bottom"):
-        if stem.endswith(suffix):
-            return True
-    return stem.endswith("_sheet")       # the current sheet reuses the old name
+def _previous_render_images(old_path):
+    """Image paths recorded by the previous render, tolerating a legacy string list."""
+    import json
+    try:
+        with open(old_path, encoding="utf-8") as f:
+            images = json.load(f).get("images") or []
+    except Exception:  # noqa: BLE001 - no previous render is the normal first run
+        return []
+    out = []
+    for im in images:
+        # new layout: {"path", ...}; old kits: a bare path string
+        path = im.get("path") if isinstance(im, dict) else im
+        if isinstance(path, str) and path:
+            out.append(path)
+    return out
 
 
 def main():
@@ -278,7 +296,6 @@ def main():
     from cadlib import load_params, mesh_from_shape, out_dir, print_oriented, read_json, write_json
 
     P = load_params()
-    _clear_stale_views(os.path.join(out_dir(), "views"))
     result = {"ok": False, "images": [], "warnings": [], "timings": [],
               "design_hash": design_hash(P)}
     try:
@@ -286,75 +303,89 @@ def main():
         if not status or not status.get("ok"):
             raise RuntimeError("build_status.json missing or build failed; run build.py first")
         for rec in status["parts"]:
-            stem = rec.get("stem") or rec["name"]
-            s = print_oriented(Part.read(rec["step"]), P)
-            mesh = mesh_from_shape(s, P, linear=0.05, angular_deg=12)
-            pts, facets = mesh.Topology
-            points = np.array([[p.x, p.y, p.z] for p in pts])
-            facets = np.array(facets, dtype=int)
-            bb = s.BoundBox
-            bbox = (bb.XLength, bb.YLength, bb.ZLength)
-            outdir = os.path.join(out_dir(), "views")
-            part_cats = part_categories(s, P, points, facets)   # once per part, reused below
+            try:
+                stem = rec.get("stem") or rec["name"]
+                s = print_oriented(Part.read(rec["step"]), P)
+                mesh = mesh_from_shape(s, P, linear=0.05, angular_deg=12)
+                pts, facets = mesh.Topology
+                points = np.array([[p.x, p.y, p.z] for p in pts])
+                facets = np.array(facets, dtype=int)
+                bb = s.BoundBox
+                bbox = (bb.XLength, bb.YLength, bb.ZLength)
+                outdir = os.path.join(out_dir(), "views")
+                part_cats = part_categories(s, P, points, facets)   # once per part, reused below
 
-            # shape: TechDraw line art
-            shape_records, shape_warnings, timings = render_lines.render_part(
-                s, stem, bbox, outdir)
-            result["warnings"] += shape_warnings
-            result["timings"] += timings
+                # shape: TechDraw line art
+                shape_records, shape_warnings, timings = render_lines.render_part(
+                    s, stem, bbox, outdir)
+                result["warnings"] += shape_warnings
+                result["timings"] += timings
 
-            # support: the flat raster classification, bottom view only
-            support_records = render_part(
-                stem, points, facets, part_cats, bbox, outdir,
-                views=SUPPORT_VIEWS, tag="_support")
+                # support: the flat raster classification, bottom view only
+                support_records = render_part(
+                    stem, points, facets, part_cats, bbox, outdir,
+                    views=SUPPORT_VIEWS, tag="_support")
 
-            ordered = shape_records + support_records
-            sheet_path = os.path.join(outdir, "%s_sheet.png" % stem)
-            render_lines.contact_sheet(
-                [r["path"] for r in ordered], sheet_path,
-                "%s   bbox %.2f x %.2f x %.2f mm   red = overhang, amber = unsupported shelf"
-                % ((stem,) + bbox),
-                render_lines.ENGINE_FOOTER)
-            result["images"] += [{"path": sheet_path, "view": "sheet", "engine": "mixed"}]
-            result["images"] += ordered
-            result["engine_footer"] = render_lines.ENGINE_FOOTER
+                ordered = shape_records + support_records
+                expected_shape = len(render_lines.SIX_VIEWS)
+                if len(shape_records) < expected_shape:
+                    result["warnings"].append(
+                        "sheet for %s has %d of %d shape views; the missing ones are named above"
+                        % (stem, len(shape_records), expected_shape))
+                sheet_path = os.path.join(outdir, "%s_sheet.png" % stem)
+                render_lines.contact_sheet(
+                    [r["path"] for r in ordered], sheet_path,
+                    "%s   bbox %.2f x %.2f x %.2f mm   red = overhang, amber = unsupported shelf"
+                    % ((stem,) + bbox),
+                    render_lines.ENGINE_FOOTER)
+                result["images"] += [{"path": sheet_path, "view": "sheet", "engine": "mixed"}]
+                result["images"] += ordered
+                result["engine_footer"] = render_lines.ENGINE_FOOTER
 
-            for feat in P.get("render", {}).get("features", []):
-                try:
-                    ftag = "_" + str(feat["name"])
-                    sec = feat.get("section")
-                    # the feature as-is, and (when it declares one) the sectioned cut
-                    variants = [("", None)]
-                    if sec:
-                        variants.append(("_section",
-                                         "section: %s=%.2f mm" % (sec["axis"], float(sec["at_mm"]))))
-                    for vsuffix, sec_text in variants:
-                        fs = feature_shape(s, feat, apply_section=bool(vsuffix))
-                        fbb = fs.BoundBox
-                        fbox = (fbb.XLength, fbb.YLength, fbb.ZLength)
-                        vtag = ftag + vsuffix
-                        # shape: line art at the feature's OWN span (BC5), never the part's
-                        fshape, fwarn, ftime = render_lines.render_part(
-                            fs, stem, fbox, outdir, views=render_lines.FEATURE_SHAPE_VIEWS,
-                            tag=vtag, section_text=sec_text, feature=True)
-                        result["warnings"] += fwarn
-                        result["timings"] += ftime
+                for feat in P.get("render", {}).get("features", []):
+                    try:
+                        ftag = "_" + str(feat["name"])
+                        sec = feat.get("section")
+                        # the feature as-is, and (when it declares one) the sectioned cut
+                        variants = [("", None)]
+                        if sec:
+                            variants.append(("_section",
+                                             "section: %s=%.2f mm" % (sec["axis"], float(sec["at_mm"]))))
+                        for vsuffix, sec_text in variants:
+                            fs = feature_shape(s, feat, apply_section=bool(vsuffix))
+                            fbb = fs.BoundBox
+                            fbox = (fbb.XLength, fbb.YLength, fbb.ZLength)
+                            vtag = ftag + vsuffix
+                            # shape: line art at the feature's OWN span (BC5), never the part's
+                            fshape, fwarn, ftime = render_lines.render_part(
+                                fs, stem, fbox, outdir, views=render_lines.FEATURE_SHAPE_VIEWS,
+                                tag=vtag, section_text=sec_text, feature=True)
+                            result["warnings"] += fwarn
+                            result["timings"] += ftime
 
-                        # support: whole-part categories mapped onto the coupon
-                        fmesh = mesh_from_shape(fs, P, linear=0.02, angular_deg=8)
-                        fpts, ffacets = fmesh.Topology
-                        fpoints = np.array([[p.x, p.y, p.z] for p in fpts])
-                        ffacets = np.array(ffacets, dtype=int)
-                        fcats = map_categories(points, facets, part_cats, fpoints, ffacets)
-                        fsup = render_part(
-                            stem, fpoints, ffacets, fcats, fbox, outdir,
-                            views=FEATURE_SUPPORT_VIEWS, tag=vtag + "_support")
-                        result["images"] += fshape + fsup
-                except Exception as exc:  # noqa: BLE001 - one bad feature must not lose the sheet
-                    result["warnings"].append("feature render %s failed: %s" % (feat.get("name"), exc))
+                            # support: whole-part categories mapped onto the coupon
+                            fmesh = mesh_from_shape(fs, P, linear=0.02, angular_deg=8)
+                            fpts, ffacets = fmesh.Topology
+                            fpoints = np.array([[p.x, p.y, p.z] for p in fpts])
+                            ffacets = np.array(ffacets, dtype=int)
+                            fcats = map_categories(points, facets, part_cats, fpoints, ffacets)
+                            fsup = render_part(
+                                stem, fpoints, ffacets, fcats, fbox, outdir,
+                                views=FEATURE_SUPPORT_VIEWS, tag=vtag + "_support")
+                            result["images"] += fshape + fsup
+                    except Exception as exc:  # noqa: BLE001 - one bad feature must not lose the sheet
+                        result["warnings"].append("feature render %s failed: %s" % (feat.get("name"), exc))
+            except Exception as exc:  # noqa: BLE001 - one bad part must not lose the others
+                result["warnings"].append("part %s render failed: %s"
+                                          % (rec.get("stem") or rec.get("name"), exc))
         result["ok"] = True
     except Exception:  # noqa: BLE001
         result["error"] = traceback.format_exc()
+    # delete only what the previous render wrote and this one did not, and only
+    # once we know what this one produced
+    if result["ok"]:
+        _clear_stale_views(os.path.join(out_dir(), "views"),
+                           keep=[r["path"] for r in result["images"]])
     write_json("render_status.json", result)
     print("RENDER", "OK" if result["ok"] else "FAILED")
     for rec in result["images"]:
