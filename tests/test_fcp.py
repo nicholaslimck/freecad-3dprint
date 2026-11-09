@@ -406,3 +406,17 @@ def test_gate_ignores_render_images_shape():
     assert evaluate(P, report, render, manifest, None)["printable"]
     render["images"] = [{"path": "s.png", "view": "bottom", "engine": "raster"}]
     assert evaluate(P, report, render, manifest, None)["printable"]
+
+
+def test_doctor_mcp_line_is_information_only(tmp_path):
+    import subprocess
+    import sys
+    env = {k: v for k, v in os.environ.items() if k != "FCP_NO_MAIN"}
+    env["FCP_PROJECT"] = str(tmp_path)
+    (tmp_path / "params.json").write_text(json.dumps({"name": "t"}))
+    kit = os.path.join(os.path.dirname(__file__), "..", "skills", "freecad-3dprint", "kit", "fcp")
+    subprocess.run([sys.executable, os.path.join(kit, "doctor.py")], env=env, timeout=120)
+    got = json.loads((tmp_path / ".out" / "doctor.json").read_text())
+    assert got["mcp"]["available"] is False
+    assert got["mcp"]["reason"]
+    assert not any("mcp" in p.lower() for p in got["problems"])
