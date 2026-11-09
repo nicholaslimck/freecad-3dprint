@@ -120,3 +120,13 @@ def test_render_part_records_an_engine_per_image(tmp_path):
     assert recs and all(set(r) == {"path", "view", "engine"} for r in recs)
     assert all(r["engine"] == "raster" for r in recs)
     assert {r["view"] for r in recs} == set(rv.VIEWS)
+
+
+def test_whole_part_raster_renders_only_the_bottom_view(tmp_path):
+    pytest.importorskip("matplotlib", reason="raster engine needs FreeCAD's bundled matplotlib")
+    import render_views as rv
+    pts, faces = _tri_cube()
+    recs = rv.render_part("t", pts, faces, None, (10.0, 10.0, 10.0), str(tmp_path),
+                          views=rv.SUPPORT_VIEWS)
+    views = {r["view"] for r in recs} - {"sheet"}
+    assert views == {"bottom"}

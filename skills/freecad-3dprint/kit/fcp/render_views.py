@@ -1,11 +1,14 @@
-"""Headless orthographic renders. Run with:  FreeCADCmd.exe fcp\\render_views.py
+"""Support-map renders. Run with:  FreeCADCmd.exe fcp\\render_views.py
 
-Writes, per part, .out/views/<stem>_<view>.png and a contact sheet
-.out/views/<stem>_sheet.png. Views are in PRINT orientation (Z up = away from
-the bed). Steep overhangs are red; flat down faces classified as cantilever or
-unsupported are amber, so the bottom view doubles as a support map.
+This module draws ONLY the bottom (bed-facing) support map; shape views come
+from render_lines.py. Writes, per part, .out/views/<stem>_bottom.png and a
+one-panel sheet .out/views/<stem>_sheet.png. Views are in PRINT orientation
+(Z up = away from the bed). Steep overhangs are red; flat down faces classified
+as cantilever or unsupported are amber, so the bottom view doubles as a support
+map.
 
-params.render.features[] adds a close-up sheet and optional section per feature:
+params.render.features[] adds a close-up support panel and optional section per
+feature:
   {"name": "latch", "bbox_mm": [[x0,y0,z0],[x1,y1,z1]],
    "section": {"axis": "y", "at_mm": 12.0}}     # keeps the low side of the plane
 The feature bbox is in PRINT orientation (after print.rotate), not design coordinates:
@@ -34,6 +37,10 @@ VIEWS = {
 }
 FEATURE_VIEWS = {"iso": VIEWS["iso"], "front": VIEWS["front"],
                  "top": VIEWS["top"], "bottom": VIEWS["bottom"]}
+# The raster engine's job is the support map. Bottom views are the only ones it
+# draws: that is where the red/amber categories are the question being asked.
+SUPPORT_VIEWS = {"bottom": VIEWS["bottom"]}
+FEATURE_SUPPORT_VIEWS = {"bottom": VIEWS["bottom"]}
 COLORS = np.array([[0.55, 0.68, 0.85],   # 0 normal
                    [0.90, 0.25, 0.20],   # 1 steep overhang
                    [0.95, 0.65, 0.15]])  # 2 flat down, cantilever/unsupported
@@ -222,7 +229,8 @@ def main():
             bb = s.BoundBox
             result["images"] += render_part(
                 stem, points, facets, categories(s, P, points, facets),
-                (bb.XLength, bb.YLength, bb.ZLength), os.path.join(out_dir(), "views"))
+                (bb.XLength, bb.YLength, bb.ZLength), os.path.join(out_dir(), "views"),
+                views=SUPPORT_VIEWS)
 
             for feat in P.get("render", {}).get("features", []):
                 try:
@@ -235,7 +243,7 @@ def main():
                     result["images"] += render_part(
                         stem, fpoints, ffacets, categories(fs, P, fpoints, ffacets),
                         (fbb.XLength, fbb.YLength, fbb.ZLength), os.path.join(out_dir(), "views"),
-                        views=FEATURE_VIEWS, tag="_" + str(feat["name"]))
+                        views=FEATURE_SUPPORT_VIEWS, tag="_" + str(feat["name"]))
                 except Exception as exc:  # noqa: BLE001 - one bad feature must not lose the sheet
                     result["warnings"].append("feature render %s failed: %s" % (feat.get("name"), exc))
         result["ok"] = True
