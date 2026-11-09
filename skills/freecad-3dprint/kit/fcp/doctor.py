@@ -88,6 +88,17 @@ def main():
         result["problems"].append("params.json unreadable: %s" % exc)
         print("params.json FAILED:", exc)
 
+    # Information only: MCP is an accelerator, never a requirement, so this can
+    # never become a problem and never changes ok. A broken probe is still only
+    # information.
+    try:
+        from mcp_probe import probe
+        result["mcp"] = probe()
+    except Exception as exc:  # noqa: BLE001
+        result["mcp"] = {"available": False, "reason": "probe error: %s" % exc}
+    print("MCP      ", "%s: %s" % ("available" if result["mcp"].get("available") else "absent",
+                                   result["mcp"].get("reason")))
+
     result["ok"] = not result["problems"]
     print("FCP_PROJECT =", PROJECT)
     print("FCP_SLICER  =", os.environ.get("FCP_SLICER", "(unset)"))
@@ -101,8 +112,9 @@ def main():
     sys.exit(0 if result["ok"] else 1)
 
 
-if not os.environ.get("FCP_NO_MAIN"):
-    main()  # FreeCADCmd does not set __name__ == "__main__"
+from cli import run
+
+run(main, module_name=__name__)
 
 
 

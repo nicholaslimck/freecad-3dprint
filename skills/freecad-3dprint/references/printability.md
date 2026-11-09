@@ -47,6 +47,14 @@ printed vertically with about 0.2 mm clearance.
 - The first two layers are treated as bed: an elephant-foot chamfer lives there and
   the bed supports it, so it is not reported as an overhang.
 - Bridges up to about 10 mm are reliable and 20 mm is usually OK. Anything longer needs support or a redesign.
+- **A wall lintel is not an open-air bridge.** The wall above a port cut-out is
+  solid on both sides and only narrows to a bridge across its top few layers,
+  so it tolerates a longer span than the figures above suggest. A square-topped
+  opening 40 mm wide still leaves a 3 mm shelf that the checks will flag; split
+  it into separate openings for separate connectors (USB, Ethernet, HDMI), which
+  is both more accurate to the real board and leaves a post between them instead
+  of one long span. Chamfering or arching the top removes the flat face entirely
+  if the span must stay long.
 - **Slow the bridge, not the whole print.** A hinge strap or latch bridge that droops is
   usually a speed/cooling problem before it is a geometry problem: set the bridge speed
   and bridge fan separately (Creality Print 7.x has bridge settings under the material/
@@ -70,6 +78,24 @@ printed vertically with about 0.2 mm clearance.
 - Elephant foot: chamfer outer bed edges 0.3-0.5 mm (`params.print.elephant_foot_chamfer`), especially where a part must fit against something.
 
 ## Mechanical features
+- **Enclosure parts are not portable by default.** A case has to *contain*
+  something, and that thing is not one of your parts, so `relations` cannot see
+  it and the printability checks never will. Declare the occupant in
+  `checks.fit` so a cavity that is too shallow or too tight fails the report
+  instead of being found after printing:
+  ```json
+  {"name": "board", "part": "base", "box_mm": [85, 56, 1.6], "at_z_mm": 4.0,
+   "component_height_mm": 15.5, "max_interference_mm3": 0.5}
+  ```
+  `at_z_mm` is where the occupant's underside sits, `component_height_mm` is the
+  tallest thing standing on it. Reach for this whenever the part is a housing,
+  a tray, a mount with a clearance pocket or a lid that must close over a
+  connector.
+- **Post height is not cavity depth.** A standoff's height (`standoff_h`) only
+  decides how far the part is lifted; the wall height (`cavity_h`) decides what
+  fits. A standoff as tall as the cavity leaves the board sitting on top of the
+  walls. Keep them as separate parameters and set the cavity from
+  `standoff + board + component_height + margin`.
 - **Snap fits:** cantilever length at least 5x thickness (8-10x comfortable), strain
   kept low (`1.5 * t * y / L^2`, under ~2% for PETG, ~1.5% for PLA in reused snaps),
   and printed so the beam flexes along the layers. Add a lead-in chamfer and a

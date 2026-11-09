@@ -184,5 +184,6 @@ def main():
         print("  note: " + report["note"])
 
 
-if not os.environ.get("FCP_NO_MAIN"):
-    main()
+from cli import run
+
+run(main, module_name=__name__)

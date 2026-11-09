@@ -220,7 +220,8 @@ def _gate_fixture(accept=None, preview=None, warnings=None):
     report = {"pass": True, "design_hash": digest,
               "parts": [{"name": "part", "errors": [], "info": [],
                          "warnings": [CANTILEVER_WARNING] if warnings is None else warnings}]}
-    render = {"ok": True, "images": ["sheet.png"], "warnings": [], "design_hash": digest}
+    render = {"ok": True, "images": [{"path": "sheet.png", "view": "sheet", "engine": "raster"}],
+              "warnings": [], "design_hash": digest}
     manifest = {"sources": {"design": digest},
                 "parts": [{"name": "part", "sha256": {"3mf": "abc"}}]}
     return P, report, render, manifest
@@ -387,3 +388,93 @@ def test_nested_workspace_is_detected(tmp_path):
     normal = tmp_path / "proj" / ".freecad-3dprint"
     normal.mkdir(parents=True)
     assert nested_workspace(str(normal)) == ""
+
+
+def test_manifest_hashes_each_fcp_module_once():
+    """export_all hashes every *.py in fcp/. A duplicate name (case or dir) makes the gate stale."""
+    import os
+    kit = os.path.join(os.path.dirname(__file__), "..", "skills", "freecad-3dprint", "kit", "fcp")
+    names = [n for n in os.listdir(kit) if n.endswith(".py")]
+    lower = [n.lower() for n in names]
+    assert len(lower) == len(set(lower)), "two fcp modules differ only by case: %s" % names
+    assert "design_hash.py" in names and "analysis.py" in names
+
+
+def test_gate_ignores_render_images_shape():
+    P, report, render, manifest = _gate_fixture([ACCEPT], PREVIEW)
+    render["images"] = ["sheet.png"]               # an old kit's render_status.json
+    assert evaluate(P, report, render, manifest, None)["printable"]
+    render["images"] = [{"path": "s.png", "view": "bottom", "engine": "raster"}]
+    assert evaluate(P, report, render, manifest, None)["printable"]
+
+
+def test_doctor_mcp_line_is_information_only(tmp_path):
+    import subprocess
+    import sys
+    env = {k: v for k, v in os.environ.items() if k != "FCP_NO_MAIN"}
+    env["FCP_PROJECT"] = str(tmp_path)
+    (tmp_path / "params.json").write_text(json.dumps({"name": "t"}))
+    kit = os.path.join(os.path.dirname(__file__), "..", "skills", "freecad-3dprint", "kit", "fcp")
+    subprocess.run([sys.executable, os.path.join(kit, "doctor.py")], env=env, timeout=120)
+    got = json.loads((tmp_path / ".out" / "doctor.json").read_text())
+    # available or absent depends on whether a server is running on this machine;
+    # what must hold is that the probe reports a reason and never becomes a problem
+    assert isinstance(got["mcp"]["available"], bool)
+    assert got["mcp"]["reason"]
+    assert not any("mcp" in p.lower() for p in got["problems"])
+
+
+def _need_freecad_part():
+    import importlib.util
+    if importlib.util.find_spec("Part") is None:
+        import pytest
+        pytest.skip("fit checks use FreeCAD Part")
+
+
+def test_fit_check_accepts_a_board_that_fits():
+    """checks.fit: an occupant inside a big cavity with headroom passes."""
+    _need_freecad_part()
+    import fit
+    import Part
+    import FreeCAD
+    host = Part.makeBox(90, 60, 24, FreeCAD.Vector(-45, -30, 0))
+    host = host.cut(Part.makeBox(86, 56, 23, FreeCAD.Vector(-43, -28, 1)))
+    P = {"checks": {"fit": [{"name": "board", "part": "case", "box_mm": [85, 56, 1.6],
+                             "at_z_mm": 3.0, "component_height_mm": 15.5}]}}
+    report = {}
+    fit.check_fit(P, {"case": host}, report)
+    assert report["fit"][0]["ok"] is True, report["fit"]
+
+
+def test_fit_check_rejects_a_case_too_shallow_for_the_board():
+    """The bug this exists to catch: cavity depth < board + connector height."""
+    _need_freecad_part()
+    import fit
+    import Part
+    import FreeCAD
+    host = Part.makeBox(90, 60, 9.6, FreeCAD.Vector(-45, -30, 0))
+    host = host.cut(Part.makeBox(86, 56, 8, FreeCAD.Vector(-43, -28, 1.6)))
+    P = {"checks": {"fit": [{"name": "board", "part": "case", "box_mm": [85, 56, 1.6],
+                             "at_z_mm": 1.6, "component_height_mm": 15.5}]}}
+    report = {}
+    fit.check_fit(P, {"case": host}, report)
+    row = report["fit"][0]
+    assert row["ok"] is False
+    assert any("above the occupant" in p for p in row["problems"]), row
+
+
+def test_fit_check_rejects_an_occupant_that_collides():
+    _need_freecad_part()
+    import fit
+    import Part
+    import FreeCAD
+    host = Part.makeBox(90, 60, 24, FreeCAD.Vector(-45, -30, 0))
+    host = host.cut(Part.makeBox(86, 56, 23, FreeCAD.Vector(-43, -28, 1)))
+    # a standoff pokes into where the board sits
+    host = host.fuse(Part.makeCylinder(3, 6, FreeCAD.Vector(29, 24.5, 0)))
+    P = {"checks": {"fit": [{"name": "board", "part": "case", "box_mm": [85, 56, 1.6],
+                             "at_z_mm": 1.0, "component_height_mm": 15.5}]}}
+    report = {}
+    fit.check_fit(P, {"case": host}, report)
+    assert report["fit"][0]["ok"] is False
+    assert report["fit"][0]["interference_mm3"] > 0.5

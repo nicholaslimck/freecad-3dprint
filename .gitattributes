@@ -1,0 +1,2 @@
+# use LF everywhere so edits stay portable
+* text=auto eol=lf

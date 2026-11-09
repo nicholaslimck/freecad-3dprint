@@ -34,10 +34,19 @@ Every finding has a stable `code`, so a warning can be accepted in
 `params.checks.accept` with a reason and evidence. A face declared as a bridge
 that the geometry shows as a cantilever is an error, not a warning.
 
-The renders are a six-view contact sheet in print orientation: red is a steep
-overhang, amber is a flat down face that is a cantilever or unsupported shelf.
-`render.features` adds a close-up and section per feature (a latch, a bead, a
-hinge) so a small undercut is visible without opening FreeCAD.
+The renders are one contact sheet in print orientation, built by two engines:
+the five shape views are **TechDraw line art** with hidden lines removed, and
+the bottom view is a **flat raster support map** where red is a steep overhang
+and amber is a flat down face that is a cantilever or unsupported shelf. The
+sheet's footer names which engine drew each panel, so a colour is never read off
+a shape view. `render.features` adds line art plus a support panel per feature (a
+latch, a bead, a hinge), and a sectioned variant when the feature declares a
+section, so a small undercut is visible without opening FreeCAD.
+
+**Optional: live review over MCP.** If you run the FreeCAD MCP addon, the agent
+can build candidate shapes in a live GUI and show you screenshots. It is never
+required: with no server, renders come from the file pipeline exactly as before,
+and no GUI can write the print gate. See `references/mcp-setup.md`.
 
 ## Requirements
 
@@ -139,8 +148,13 @@ skills/freecad-3dprint/
       cadlib.py             geometry helpers: holes, counterbores, teardrops, fillets,
                             section/coupon, export + manifest, no-BOM writes
       analysis.py           pure-numpy flat-face regions and bridge/cantilever classification
+      fit.py                checks.fit: does the occupant an enclosure is for fit inside it?
+      design_hash.py        hash of the design-relevant params (stdlib only)
+      cli.py                run(main, module_name=__name__): main() only when FreeCAD ran the file
       check_print.py        printability checks -> .out/report.json
-      render_views.py       orthographic, detail and section renders -> .out/views/
+      render_lines.py       TechDraw line art: shape views and the contact sheet -> .out/views/
+      render_views.py       raster support map (bottom view only) -> .out/views/
+      mcp_probe.py          optional FreeCAD MCP server check, information only
       slice.py              slicer CLI wrapper -> .out/slice_report.json
       gate.py               print gate -> .out/print_gate.json
       release.py            verified files -> <project>/print/<stem>/
@@ -197,7 +211,11 @@ classification, slicer and gate helpers) have tests in `tests/`; run them with
 `pip install numpy pytest && pytest`. `tests/e2e_cases.py` builds the failure
 cases from the improvement handoff as throwaway projects through FreeCADCmd
 (cantilever shelf, two-tower bridge, disconnected hook, BOM, coupon section) and
-needs FreeCAD installed. Rendering is not pixel-tested. Bug reports with the
+needs FreeCAD installed. Rendering is tested two ways: the support classification
+is unit-tested in plain pytest, and the shape renderer is checked against a
+ray-cast ground truth under `freecadcmd` (`tests/test_render.py`; the FreeCAD half
+skips when FreeCAD is absent, so a green run on a machine without it does not
+prove the line art). Bug reports with the
 contents of `.out/build_status.json` or `.out/report.json` are welcome.
 
 ## License

@@ -314,6 +314,55 @@ def main(argv):
     expect("coupon_not_section" not in codes(coupon or {}),
            "section coupon must not be warned as a block coupon")
 
+    print("8. feature close-ups carry both engines")
+    f = Case("feature", COUPON,
+             params("feature", {"length": 40, "width": 20, "floor": 1.6, "wall": 1.2,
+                                "height": 12, "lip": 0.8, "eps": 0.01}, [40, 20, 12]))
+    f.p["render"] = {"features": [{"name": "lip", "bbox_mm": [[-20, -10, 8], [20, 10, 12]],
+                                   "section": {"axis": "z", "at_mm": 10.0}}]}
+    f.write_params(f.p)
+    f.checkout()
+    imgs = f.json("render_status.json")["images"]
+    lip = [i for i in imgs if "_lip_" in os.path.basename(i["path"])]
+    expect(any(i["engine"] == "techdraw" for i in lip), "feature needs TechDraw line art")
+    expect(any(i["engine"] == "raster" for i in lip), "feature needs a raster support panel")
+    expect(any("_lip_section_" in os.path.basename(i["path"]) for i in lip),
+           "a sectioned feature needs its section variant")
+    for i in lip:
+        expect(os.path.getsize(i["path"]) > 1000, "feature panel is empty: " + i["path"])
+
+    print("9. a bad section is a warning, not a lost sheet")
+    f.p["render"]["features"][0]["section"]["at_mm"] = 7.0   # below the bbox z minimum of 8
+    f.write_params(f.p)
+    f.run(os.path.join("fcp", "render_views.py"))
+    rs = f.json("render_status.json")
+    expect(rs["ok"], "a bad section must not fail the render")
+    expect(any("feature render lip failed" in w for w in rs["warnings"]),
+           "the bad section must be named as a feature warning: %s" % rs["warnings"])
+    expect(any("outside the feature bbox" in w for w in rs["warnings"]),
+           "the warning must say why: %s" % rs["warnings"])
+    whole = [i for i in rs["images"] if i["view"] in ("iso", "front", "bottom")]
+    expect(len(whole) >= 3, "the whole-part panels must survive a bad feature")
+
+    print("10. an occupant that does not fit is an error, not a warning")
+    g = Case("occupant", COUPON,
+             params("occupant", {"length": 40, "width": 20, "floor": 1.6, "wall": 1.2,
+                                 "height": 12, "lip": 0.8, "eps": 0.01}, [40, 20, 12]))
+    # a 30 x 10 x 1.6 board with 40 mm of connector standing on it: the part is
+    # only 12 mm tall, so this cannot fit and must fail the check outright
+    g.p["checks"]["fit"] = [{"name": "board", "part": "occupant",
+                             "box_mm": [30.0, 10.0, 1.6], "at_z_mm": 1.6,
+                             "component_height_mm": 40.0}]
+    g.write_params(g.p)
+    g.run("build.py")
+    g.run(os.path.join("fcp", "check_print.py"))
+    rep = g.json("report.json")
+    expect(rep["pass"] is False, "a board that cannot fit must fail the report")
+    found = [e.get("code") for p in rep["parts"] for e in p.get("errors", [])]
+    expect("fit_collision" in found, "the failure must be fit_collision, got %s" % found)
+    expect(any(not row["ok"] for row in rep.get("fit") or []),
+           "report.fit must carry the failed row")
+
     print()
     if failures:
         print("FAILED %d check(s)" % len(failures))
