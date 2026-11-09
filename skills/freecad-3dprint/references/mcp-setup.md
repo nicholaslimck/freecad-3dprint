@@ -160,16 +160,70 @@ Symptoms, in order:
   shows `BEX64` / `c0000409` (fail-fast) in `ucrtbase.dll`. `freecadcmd.exe`
   hosting the addon crashes separately in `Qt6Core.dll`.
 
-**Upstream:** this is [neka-nat/freecad-mcp#115](https://github.com/neka-nat/freecad-mcp/issues/115),
+Confirmed twice on this machine: the crash comes from the **call itself**, not
+from what the code does. A one-line `FreeCAD.newDocument(...)`, and separately a
+`FreeCAD.openDocument(...)`, both killed FreeCAD outright.
+
+**Upstream:** the hang is [neka-nat/freecad-mcp#115](https://github.com/neka-nat/freecad-mcp/issues/115),
 open and unfixed. The reporter's trigger is a broken FeaturePython object; the
-repro above needs no such object. The hard crash has no matching issue.
+repros above need no such object. The hard crash has no matching issue.
 
-**What to do:**
+## If `execute_code_async` kills FreeCAD
 
-- Do not use `execute_code_async` to build geometry. Use
-  `execute_code_headless`, which runs in a separate `freecadcmd` process and
-  cannot take the GUI down.
-- Treat the live path as best-effort for `get_view` only, and expect to restart
-  FreeCAD afterwards.
-- If the probe says `timed out`, tell the user to restart FreeCAD rather than
-  guessing at firewalls.
+Treat it as a normal outcome, not an emergency:
+
+1. **Say so once** and name the cause (it is an addon crash, not the user's
+   geometry, and not something the design did). Do not retry it - the retry
+   crashes it again.
+2. **Restart FreeCAD**, and reopen whatever document the user had.
+3. **Carry on with the alternatives.** In order of preference:
+
+   | Instead of async | Use |
+   |---|---|
+   | building or modifying geometry | `execute_code_headless` |
+   | running the real pipeline | `fcp/run.ps1`, or `FreeCADCmd.exe build.py` etc. |
+   | showing the user the result | `.out/views/<stem>_sheet.png` from the render step |
+
+   All three are separate processes and cannot take the GUI down.
+4. **Do not depend on `get_view`.** If FreeCAD died, there is no GUI to
+   screenshot, and the only way to load a document into it is `execute_code_async`
+   - the call that just crashed it. The contact sheet is the deliverable.
+
+Nothing in the design, check, slice or gate path needs MCP; losing it costs a
+convenience, never a result. This is exactly why the skill treats MCP as an
+accelerator.
+
+### What has actually been proven to work
+
+Verified on Windows, FreeCAD 1.1.4, addon 0.1.30:
+
+| Call | Result |
+|---|---|
+| `mcp_probe` against a live server | works - `available: true`, protocol 1 |
+| `get_rpc_status` | works - reports GUI dispatch health |
+| `execute_code_headless` building geometry, saving a `.FCStd`, returning output | works |
+| `execute_code_async` | **crashes FreeCAD** |
+| `get_view` on an open document | runs and returns a PNG, but the capture was blank - see below |
+
+### A headless-built document opens with everything hidden
+
+`execute_code_headless` has no GUI, so every object it creates has
+`ViewObject: None` - there is no view provider to attach a view to. When the GUI
+later opens that `.FCStd`, the objects are present but **hidden**, and
+`get_view` returns a blank image with no error. Setting `Visibility = True`
+before `saveAs` does not survive: the file was reopened and the parts were still
+hidden.
+
+So the round trip "build headlessly, save, open in the GUI, screenshot it" does
+not work. The practical consequence:
+
+- **Do not build review candidates in headless FreeCAD and hand the user a
+  `.FCStd` expecting them to see the shapes.** They will open an empty view.
+- **Use the contact sheet** (`render_lines.contact_sheet` / `fcp/run.ps1`). It is
+  a real image, needs no GUI, and is what the skill delivers anyway.
+- Building candidates *inside* the running GUI needs `execute_code_async`, which
+  crashes FreeCAD here. There is currently no working path to a live 3D view.
+
+None of this blocks the design loop. It only removes the "show me live" nicety
+the skill offered.
+
