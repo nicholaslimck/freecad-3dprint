@@ -3,6 +3,8 @@
 Pure geometry and scale maths only; the TechDraw/Qt half lives further down and
 is imported lazily so this module stays importable under plain Python.
 """
+import os
+
 VIEW_PX = 700                    # nominal long edge of a whole-part panel
 STROKE_PX = 2.0                  # stroke floor, in pixels; never thinner
 STROKE_PX_PER_DECADE = 1.6       # how much the stroke grows per 10x zoom
@@ -122,3 +124,117 @@ def svg_size(svg):
         raise ValueError("no width/height on the svg root")
     return int(m.group(1)), int(m.group(2))
 
+
+
+# ---------------------------------------------------------------- TechDraw (FreeCAD only)
+TEMPLATE_REL = os.path.join("Mod", "TechDraw", "Templates", "Default_Template_A4_Landscape.svg")
+
+
+def template_path():
+    """The A4 landscape TechDraw template from the running FreeCAD install."""
+    import FreeCAD
+    path = os.path.join(FreeCAD.getResourceDir(), TEMPLATE_REL)
+    if not os.path.isfile(path):
+        raise RuntimeError("TechDraw template not found: %s" % path)
+    return path
+
+
+def techdraw_document(shape, name):
+    """New document holding `shape` as a Part::Feature. Caller closes it."""
+    import FreeCAD
+    doc = FreeCAD.newDocument("fcplines_" + name)
+    obj = doc.addObject("Part::Feature", "shape_" + name)
+    obj.Shape = shape
+    doc.recompute()
+    return doc, obj
+
+
+def visible_edges(doc, shape_obj, eye, up, name):
+    """Projected, hidden-line-removed edges of `shape_obj` seen from `eye`.
+
+    TechDraw projects about the shape's centre, so each edge is translated into
+    a frame whose origin is the projection's own bounding-box minimum. View
+    space is then absolute and up is +Y, which is what the SVG builder expects.
+    """
+    import FreeCAD
+    page = doc.addObject("TechDraw::DrawPage", "Page_" + name)
+    tpl = doc.addObject("TechDraw::DrawSVGTemplate", "Tpl_" + name)
+    tpl.Template = template_path()
+    page.Template = tpl
+    view = doc.addObject("TechDraw::DrawViewPart", "View_" + name)
+    page.addView(view)
+    view.Source = [shape_obj]
+    e = FreeCAD.Vector(*eye)
+    e.normalize()
+    view.Direction = e
+    x = FreeCAD.Vector(*up).cross(e)
+    if x.Length < 1e-9:
+        x = FreeCAD.Vector(1, 0, 0)
+    x.normalize()
+    view.XDirection = x
+    doc.recompute()
+    edges = view.getVisibleEdges()
+    return _rebase(edges, FreeCAD)
+
+
+def _rebase(edges, FreeCAD):
+    """Shift projected edges so the projection's bbox minimum sits at the origin."""
+    if not edges:
+        return edges
+    xs = [p.x for e in edges for p in (e.firstVertex().Point, e.lastVertex().Point)]
+    ys = [p.y for e in edges for p in (e.firstVertex().Point, e.lastVertex().Point)]
+    dx, dy = min(xs), min(ys)
+    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+        return edges
+    out = []
+    for e in edges:
+        c = e.copy()
+        c.translate(FreeCAD.Vector(-dx, -dy, 0))
+        out.append(c)
+    return out
+
+
+def rasterise(svg_text, png_path):
+    """SVG text to PNG through Qt, which FreeCAD already ships."""
+    QtSvg, QtGui, QtCore = _qt()
+    if QtSvg is None:
+        raise RuntimeError("no QtSvg binding")
+    app = QtGui.QGuiApplication.instance()
+    if app is None:
+        # freecadcmd has no Qt app when a script runs outside the GUI; QImage and
+        # QPainter need one, so hold a reference for the duration of the call.
+        app = QtGui.QGuiApplication([])
+    renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(svg_text.encode("utf-8")))
+    if not renderer.isValid():
+        raise RuntimeError("QSvgRenderer rejected the SVG")
+    size = renderer.defaultSize()
+    img = QtGui.QImage(size, QtGui.QImage.Format_ARGB32)
+    img.fill(QtGui.QColor("white"))
+    painter = QtGui.QPainter(img)
+    try:
+        renderer.render(painter)
+    finally:
+        painter.end()
+    if not img.save(png_path):
+        raise RuntimeError("QImage.save failed: %s" % png_path)
+    return png_path
+
+
+def _qt():
+    for mod in ("PySide6", "PySide2", "PySide"):
+        try:
+            ns = __import__(mod, fromlist=["QtSvg", "QtGui", "QtCore"])
+            if hasattr(ns, "QtSvg"):
+                return ns.QtSvg, ns.QtGui, ns.QtCore
+        except Exception:  # noqa: BLE001 - try the next binding
+            continue
+    return None, None, None
+
+
+def close_document(doc):
+    """Close a document opened by techdraw_document(), swallowing teardown errors."""
+    import FreeCAD
+    try:
+        FreeCAD.closeDocument(doc.Name)
+    except Exception:  # noqa: BLE001 - the app is going away anyway
+        pass

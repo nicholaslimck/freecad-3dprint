@@ -216,3 +216,23 @@ def test_clipped_feature_gets_the_whole_part_category_array():
     src = np.array([int(np.argmin(np.linalg.norm(cent - c, axis=1))) for c in fcent])
     assert (fcat == whole[src]).all()
     assert (fcat[under] == 2).all()
+
+
+FREECAD = (os.environ.get("FREECAD_CMD") or
+           next(iter(__import__("glob").glob(r"C:\Program Files\FreeCAD*\bin\FreeCADCmd.exe")), ""))
+
+
+@pytest.mark.skipif(not FREECAD, reason="freecadcmd not installed")
+def test_line_art_matches_a_raycast_on_a_box(tmp_path):
+    """A 40 x 20 x 10 box, front view: exactly four visible lines, at the bbox corners."""
+    import json
+    import subprocess
+    out = tmp_path / "gt.json"
+    env = dict(os.environ, FCP_GT_CASE="box", FCP_GT_OUT=str(out))
+    subprocess.run([FREECAD, os.path.join(HERE, "render_gt.py")],
+                   check=True, timeout=300, env=env)
+    gt = json.loads(out.read_text())
+    assert gt["n_visible_edges"] == 4
+    flat = [c for pt in gt["corners"] for c in pt]
+    assert flat == pytest.approx([0, 0, 0, 10, 40, 0, 40, 10], abs=1e-6)
+    assert gt["no_visible_edge_in_the_middle"] is True
