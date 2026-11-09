@@ -45,6 +45,41 @@ Settings file: `%APPDATA%\FreeCAD\v1-1\freecad_mcp_settings.json`
 Set `auto_start_rpc` to `true` so the RPC server starts with FreeCAD. The
 addon's own menu has the same toggle if you prefer the GUI.
 
+## 2a. Windows: `freecadcmd` must be on PATH
+
+`execute_code_headless` shells out to `freecadcmd`, and the server finds it with
+`detect_freecadcmd()`, which searches **PATH, then Flatpak** — it does not look in
+`C:\Program Files\FreeCAD*\bin\`. On a default Windows install `freecadcmd.exe`
+is not on PATH, so the tool fails with:
+
+```
+Headless FreeCAD script FAILED: freecadcmd not found: install FreeCAD, or pass --freecadcmd to freecad-mcp
+```
+
+Add FreeCAD's `bin` to the user PATH once:
+
+```powershell
+$bin = "C:\Program Files\FreeCAD 1.1\bin"
+$old = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($old -notmatch [regex]::Escape($bin)) {
+    [Environment]::SetEnvironmentVariable("Path", ($old.TrimEnd(';') + ";" + $bin), "User")
+}
+```
+
+Then **restart the process that launched the MCP server**, not just the server.
+Child processes inherit the environment from their parent, so if your editor or
+agent host was already running when you changed PATH, every MCP process it
+spawns keeps the old one. Verify with a fresh shell:
+
+```powershell
+python -c "import shutil; print(shutil.which('freecadcmd'))"
+```
+
+Passing `--freecadcmd` is the alternative, but on Windows the flag currently
+mangles backslash paths ([#178](https://github.com/neka-nat/freecad-mcp/issues/178)
+item 7). Use forward slashes and embedded quotes:
+`--freecadcmd "\"C:/Program Files/FreeCAD 1.1/bin/freecadcmd.exe\""`.
+
 ## 3. Start FreeCAD and verify
 
 With FreeCAD open and the server started:
