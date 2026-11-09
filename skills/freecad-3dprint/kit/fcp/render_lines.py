@@ -271,7 +271,12 @@ SIX_VIEWS = {
     "right": ((1.0, 0.0, 0.0), (0, 0, 1)),
     "top": ((0.0, 0.0, 1.0), (0, 1, 0)),
     "back_iso": ((-1.0, 1.0, 0.8), (0, 0, 1)),
-    "bottom": ((0.0, 0.0, -1.0), (0, 1, 0)),
+    # up hint -Y, not +Y. visible_edges sets XDirection = up x eye, so looking up
+    # the +Z axis with up=+Y puts +X on the LEFT and mirrors the view. -Y keeps
+    # the bottom view in the same handedness as the top view (right = +X), which
+    # also makes it agree with the raster support map in render_views. The two
+    # engines define their views separately; a test pins them to each other.
+    "bottom": ((0.0, 0.0, -1.0), (0, -1, 0)),
 }
 FEATURE_SHAPE_VIEWS = {"iso": SIX_VIEWS["iso"], "front": SIX_VIEWS["front"],
                        "top": SIX_VIEWS["top"]}

@@ -35,7 +35,10 @@ VIEWS = {
     "right":  ((1.0, 0.0, 0.0), (0, 0, 1)),
     "top":    ((0.0, 0.0, 1.0), (0, 1, 0)),
     "back_iso": ((-1.0, 1.0, 0.8), (0, 0, 1)),
-    "bottom": ((0.0, 0.0, -1.0), (0, 1, 0)),
+    # up hint -Y, not +Y: the view basis is right = up x eye, so looking UP the
+    # +Z axis with up=+Y puts +X on the LEFT and mirrors the support map. -Y
+    # keeps the bottom view in the same handedness as the top view (right = +X).
+    "bottom": ((0.0, 0.0, -1.0), (0, -1, 0)),
 }
 # The raster engine's job is the support map. Bottom views are the only ones it
 # draws: that is where the red/amber categories are the question being asked.
@@ -241,6 +244,7 @@ def feature_shape(shape, feat, apply_section=True):
 def features_for(part_stem, features):
     """The feature boxes that apply to `part_stem`.
 
+    `part_stem` is the PART name (`base`), not the output stem (`base_v1`).
     A bbox is a slice of one part. Coupons are cut from a part but are a
     different geometry, so applying a feature box to them always fails the clip.
     A feature without `part` keeps applying everywhere, which is the old
@@ -350,7 +354,10 @@ def main():
                 result["images"] += ordered
                 result["engine_footer"] = render_lines.ENGINE_FOOTER
 
-                for feat in features_for(stem, P.get("render", {}).get("features", [])):
+                # `part` in params names the PART (base), not the output stem
+                # (base_v1). Passing the stem silently matched nothing whenever
+                # params.version was set, so every scoped close-up was skipped.
+                for feat in features_for(rec["name"], P.get("render", {}).get("features", [])):
                     try:
                         ftag = "_" + str(feat["name"])
                         sec = feat.get("section")

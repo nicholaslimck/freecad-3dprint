@@ -331,6 +331,25 @@ def main(argv):
     for i in lip:
         expect(os.path.getsize(i["path"]) > 1000, "feature panel is empty: " + i["path"])
 
+    print("8b. a part-scoped feature still renders when version is set")
+    # params() always sets version 1, so the output stem is "feature_v1". main()
+    # used to filter on that stem instead of the part name, matched nothing, and
+    # silently skipped every scoped close-up.
+    f.p["render"]["features"] = [{"name": "scoped", "part": "feature",
+                                  "bbox_mm": [[-20, -10, 8], [20, 10, 12]]}]
+    f.write_params(f.p)
+    f.run(os.path.join("fcp", "render_views.py"))
+    rs = f.json("render_status.json")
+    expect(rs["ok"], "the scoped feature render must succeed")
+    scoped = [i for i in rs["images"] if "_scoped" in os.path.basename(i["path"])]
+    expect(len(scoped) >= 2, "a feature scoped to part 'feature' rendered nothing: %s"
+           % [os.path.basename(i["path"]) for i in rs["images"]])
+
+    # restore the unscoped feature for the cases that follow
+    f.p["render"]["features"] = [{"name": "lip", "bbox_mm": [[-20, -10, 8], [20, 10, 12]],
+                                  "section": {"axis": "z", "at_mm": 10.0}}]
+    f.write_params(f.p)
+
     print("9. a bad section is a warning, not a lost sheet")
     f.p["render"]["features"][0]["section"]["at_mm"] = 7.0   # below the bbox z minimum of 8
     f.write_params(f.p)
