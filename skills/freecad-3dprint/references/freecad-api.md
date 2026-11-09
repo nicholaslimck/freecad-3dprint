@@ -182,14 +182,33 @@ if __name__ == "__main__":
     main()
 ```
 
-can run to completion without executing `main()` and without an error. Call
-`main()` directly at the bottom of a headless script, or wrap it explicitly:
+can run to completion without executing `main()` and without an error.
+
+The kit scripts end with the shared shim instead:
+
+```python
+# at the end of every kit script
+from cli import run
+run(main, module_name=__name__)
+```
+
+`run` calls `main()` when FreeCAD executed the file, does nothing when the module
+was imported, and honours `FCP_NO_MAIN`. **`module_name=__name__` is not
+optional**: without it `run` falls back to a frame walk, whose immediate caller is
+`run` itself in `cli`, so it answers `'cli'` and nothing ever runs.
+
+Neither `__name__` nor `__spec__`/`importlib.util.find_spec` can tell "FreeCAD ran
+this file" from "a user's build.py imported it": FreeCAD imports the file, so it
+gets a normal `ModuleSpec` and a file-stem `__name__`, exactly like an import. The
+one signal that separates them is that a real program has a `__main__` frame on
+the stack and FreeCAD's entry point does not.
+
+For a throwaway probe script, calling `main()` directly at the bottom still works,
+or wrap it explicitly:
 
 ```
 FreeCADCmd.exe -c "import build; build.main()"
 ```
-
-The kit scripts call `main()` directly for this reason.
 
 **No UTF-8 BOM.** FreeCADCmd refuses a file that starts with one. Python's
 `open(path, "w", encoding="utf-8")` does not write a BOM, but Windows PowerShell

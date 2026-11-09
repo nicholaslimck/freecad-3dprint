@@ -26,8 +26,13 @@ fcp/cadlib.py       helpers: rounded_box, hole, counterbore, countersink, teardr
                     safe_fillet, chamfer_bed_edges, print_oriented, section, add_coupons,
                     export_all (writes .out/manifest.json), write_text ...
 fcp/analysis.py     pure-numpy mesh analysis: down-face regions, bridge/cantilever/support
+fcp/design_hash.py  hash of the design-relevant params (stdlib only)
+fcp/cli.py          run(main, module_name=__name__): runs a script's main only when
+                    FreeCAD executed it, never on import
 fcp/check_print.py  checks -> .out/report.json (codes, metrics, relations, coupons)
-fcp/render_views.py 6 views + contact sheet, per-feature detail and section -> .out/views/
+fcp/render_lines.py TechDraw line art: the six shape views + one contact sheet -> .out/views/
+fcp/render_views.py the raster support map (bottom view only), red/amber categories
+fcp/mcp_probe.py    is the optional FreeCAD MCP server up? -> .out/doctor.json (information only)
 fcp/slice.py        PrusaSlicer (or custom) CLI wrapper -> .out/slice_report.json
 fcp/gate.py         print gate -> .out/print_gate.json
 fcp/release.py      verified design -> <project>/print/<stem>/
@@ -61,7 +66,8 @@ References, read when needed:
    FreeCADCmd.exe fcp/slice.py          # optional
    FreeCADCmd.exe fcp/gate.py
    ```
-   FreeCADCmd's exit code isn't reliable and `__main__` guards can silently skip your entry point: read `.out/*.json`. From WSL, call the Windows exe by its `/mnt/c/...` path and pass Windows-style paths (`wslpath -w`).
+   `fcp/render_views.py` now renders **both** engines: TechDraw line art for shape and the raster support map. FreeCADCmd's exit code isn't reliable, so read `.out/*.json`. Every kit script ends with `run(main, module_name=__name__)`, which is what makes `main()` actually run under FreeCADCmd; a bare `if __name__ == "__main__":` never fires there. From WSL, call the Windows exe by its `/mnt/c/...` path and pass Windows-style paths (`wslpath -w`).
+4. **Optional:** run `python fcp\mcp_probe.py`. If `available` is false, mention `references/mcp-setup.md` **once** and carry on either way; MCP is never required. If it is true, the user has a live FreeCAD you can use in Phase 2.
 
 ## Phase 1: Write the spec (gate: user confirms)
 Fill in `spec.md` and `params.json` with the user before writing geometry. Most bad
@@ -83,6 +89,7 @@ Edit `build.py`. One `build(params)` function that returns a shape or `{part_nam
 - Model in "design orientation", with whatever axes are natural. Print orientation is applied only at export and check time.
 - Build from primitives, extruded polygons and booleans (see the API reference). Avoid Sketcher and PartDesign from scripts.
 - **Show options, don't describe them.** When there are 2+ candidate shapes (latch, hinge, loop, bezel), build each one and render it before asking the user to choose. Text-only options are not a design review; the user is judging geometry they cannot see.
+- **Live review over MCP (only when the user asks to see options).** If `mcp_probe.py` reports the server available *and* the user says "show me", "let me look" or asks for mockups, build each candidate in a **scratch document** named `scratch_<feature>_<candidate>` and tell the user it is disposable and should be closed. Never build candidates in the user's workspace document: a save there changes the `.py` files `gate.py` hashes and muddies the release path. Without MCP, or without the user asking, the render-each-candidate rule above stands unchanged.
 - **Starting from an existing model.** A STEP can be loaded with `Part.read()` and used as a reference or a boolean body. An STL/3MF is a triangle mesh, not an editable B-rep: measure it, record the dimensions in `spec.md`, and rebuild the part parametrically; use the mesh only as a visual or subtractive reference (`Mesh.Mesh(path)`, `MeshPart`). See `freecad-api.md`.
 - Fillet and chamfer last, or select edges after the booleans that affect them. Use `safe_fillet`, and check `build_status.json` warnings for fillets that were skipped.
 - Use print-aware features: `teardrop_hole` for horizontal holes, chamfers rather than fillets on downward edges, `chamfer_bed_edges` for elephant foot.
@@ -93,7 +100,10 @@ Edit `build.py`. One `build(params)` function that returns a shape or `{part_nam
 Run `fcp\run.ps1` (build, check, render, gate). After every run:
 1. Read `.out/build_status.json`. If `ok: false`, fix using the traceback and the error table.
 2. Read `.out/report.json`. **Every error must be fixed.** Every warning must be accepted in `params.checks.accept` with a reason and evidence, or fixed. Info goes in the hand-off.
-3. **Look at `.out/views/<stem>_sheet.png`.** Compare it to the spec feature by feature. Red = steep overhang, amber = flat down face classified as cantilever/unsupported. If `render.features` is set, look at the detail/section sheet as well; the full sheet is too small for a latch. Feature `bbox_mm` values are in print orientation (after `print.rotate`), not design coordinates.
+3. **Look at `.out/views/<stem>_sheet.png`.** It has two kinds of panel, and the footer names which is which:
+   - **Shape panels (iso, front, right, top, back_iso) are TechDraw line art**: exact, hidden lines removed, no colour. Judge occlusion, the hinge seam, the lip groove and the latch loop from these. A gap smaller than a pixel in the whole-part view is what `render.features` close-ups are for.
+   - **The bottom panel is the support map**: a flat raster classification, not a shape view. Red = steep overhang, amber = flat down face classified as cantilever/unsupported. This is the only panel where colour means something, so never read a support problem off a shape panel.
+   Compare the sheet to the spec feature by feature. If `render.features` is set, look at those close-ups as well: each feature gets line art plus a support panel, and with a `section` it also gets a sectioned variant. The whole-part sheet is too small for a latch. Feature `bbox_mm` values are in print orientation (after `print.rotate`), not design coordinates.
 4. Commit after each run that passes.
 
 Read the finding codes before touching anything:
