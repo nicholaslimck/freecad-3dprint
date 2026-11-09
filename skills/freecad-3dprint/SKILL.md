@@ -26,6 +26,7 @@ fcp/cadlib.py       helpers: rounded_box, hole, counterbore, countersink, teardr
                     safe_fillet, chamfer_bed_edges, print_oriented, section, add_coupons,
                     export_all (writes .out/manifest.json), write_text ...
 fcp/analysis.py     pure-numpy mesh analysis: down-face regions, bridge/cantilever/support
+fcp/fit.py          checks.fit: does the board/phone/module an enclosure is for fit inside it?
 fcp/design_hash.py  hash of the design-relevant params (stdlib only)
 fcp/cli.py          run(main, module_name=__name__): runs a script's main only when
                     FreeCAD executed it, never on import
@@ -78,6 +79,7 @@ parts come from guessed dimensions, not from bad code.
 - Decide the print orientation with the user. Record it as `print.rotate`, and say which faces become down faces after the flip.
 - If there is a latch, catch, lid or snap: fill in the decision table in `spec.md` using `latches-and-snaps.md` **before** modelling. For a one-piece, support-free, lid-mounted 90 deg catch, say plainly that the retention face becomes an unsupported shelf and offer the alternatives.
 - Fill in `checks.bbox_mm` per part (`{"<part>": [x, y, z]}`) so scale and axis mistakes are caught. A fillet can inflate the OCC bbox: measure the built part.
+- **If the part holds something** (a case, tray, holder, or a lid that must close over a connector), declare the occupant in `checks.fit` now, with its measured box and the height of whatever stands on top of it. Nothing else in the kit can see a foreign body: a case can pass every check and still be too shallow, and the report will say so only if you asked it to. See `freecad-api.md` §13.
 - Plan the coupon now if a fit, flex or snap matters: source part + `coupon.section_mm`, real orientation, pass/fail criteria.
 - Present a short summary: what it is, key dimensions, fits, orientation, whether supports are allowed, what a coupon will test, and anything out of scope. **Wait for confirmation.**
 
@@ -117,6 +119,7 @@ Read the finding codes before touching anything:
 | `declared_bridge_is_cantilever` | accepted as a bridge, geometry says one-ended | **error:** the bridge claim is false; fix the geometry |
 | `flat_bridge` | flat down face anchored at both ends | accept with code `flat_bridge` and evidence if intentional |
 | `relation_failed` | measured clearance/interference outside the declared range | fix the fit; the values are in `report.relations` |
+| `fit_collision` | the declared occupant overlaps the part, or has too little headroom | fix the cavity or the standoffs; the values are in `report.fit` |
 | `coupon_not_section` | coupon is not cut from the real part | set `coupon.source` + `coupon.section_mm` |
 | `wall_thin`, `overhang_steep`, `bbox_mismatch`, `mesh_*` | as before | fix the geometry |
 

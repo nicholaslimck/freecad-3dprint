@@ -364,3 +364,16 @@ def test_a_section_with_an_unknown_axis_is_rejected():
     with pytest.raises(ValueError, match="axis"):
         rv.feature_shape(None, {"name": "lip", "bbox_mm": [[0, 0, 0], [10, 10, 10]],
                                 "section": {"axis": "w", "at_mm": 5.0}})
+
+
+def test_feature_box_only_applies_to_the_part_it_names():
+    """A bbox is a slice of one part; coupons are a different slice.
+
+    Without this filter every feature render on a project with coupons failed
+    with "coupon section contains no solid" and the close-ups were lost.
+    """
+    import render_views as rv
+    feats = [{"name": "hook", "part": "base", "bbox_mm": [[0, 0, 0], [1, 1, 1]]},
+             {"name": "any", "bbox_mm": [[0, 0, 0], [1, 1, 1]]}]
+    assert [f["name"] for f in rv.features_for("base", feats)] == ["hook", "any"]
+    assert [f["name"] for f in rv.features_for("snap_coupon", feats)] == ["any"]

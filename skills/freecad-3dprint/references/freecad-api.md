@@ -18,6 +18,8 @@ All units are mm and degrees unless noted. `from FreeCAD import Vector as V`.
 9. Inspecting shapes
 10. Things to avoid
 11. Error messages and what they usually mean
+12. Running scripts headless
+13. Enclosures and `checks.fit`
 
 ## 1. Primitives
 ```python
@@ -219,3 +221,57 @@ FreeCADCmd.exe -c "import build; build.main()"
 **Exit codes are not reliable** for FreeCADCmd. Every kit step writes
 `.out/<step>_status.json` or `.out/report.json`; read those instead.
 
+
+## 13. Enclosures and `checks.fit`
+
+A housing has to contain something that is **not** one of your parts. Relations
+compare two exported parts, so they cannot see the board, phone or module the
+case is for. Declare it instead:
+
+```json
+"checks": {
+  "fit": [
+    {"name": "board", "part": "base",
+     "box_mm": [85.0, 56.0, 1.6],
+     "at_z_mm": 4.0,
+     "component_height_mm": 15.5,
+     "max_interference_mm3": 0.5}
+  ]
+}
+```
+
+- `box_mm` is the occupant, centred on XY. `at_z_mm` is its underside.
+- `component_height_mm` is the tallest thing standing on it (a USB jack, a
+  connector shell). Leave it out only if nothing stands proud.
+- The occupant is reported as `fit_collision` **on the host part, as an error**,
+  not a warning: a case that cannot accept its occupant is not a case, and no
+  triage can make it printable.
+
+The check measures two things independently: overlap with the host solid, and
+headroom from the top of the occupant to the host's ceiling. Both have caught
+real bugs; a case can be the right width and still be half the depth it needs.
+
+When the case has a lid, keep the lid in its own part and give the host a cavity
+whose height you computed, not guessed:
+
+```
+cavity_h = standoff_h + board_thickness + component_height + margin
+```
+
+`standoff_h` (post height) and `cavity_h` (wall height) are different numbers.
+Setting them equal is the classic mistake: the board ends up on top of the walls.
+
+### Feature close-ups in a multi-part project
+
+`render.features[]` boxes are a slice of **one** part. Name it:
+
+```json
+"render": {"features": [
+  {"name": "hook", "part": "base", "bbox_mm": [[40, -8, 0], [48, 8, 12]]}
+]}
+```
+
+A feature without `part` applies to every part, which is right for a
+single-part project. With coupons present, an unscoped box fails on the coupon's
+different geometry ("coupon section contains no solid") and the close-up is
+lost, so scope every feature once a project has more than one part.

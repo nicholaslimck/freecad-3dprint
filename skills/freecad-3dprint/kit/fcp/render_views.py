@@ -238,6 +238,18 @@ def feature_shape(shape, feat, apply_section=True):
     return clipped
 
 
+def features_for(part_stem, features):
+    """The feature boxes that apply to `part_stem`.
+
+    A bbox is a slice of one part. Coupons are cut from a part but are a
+    different geometry, so applying a feature box to them always fails the clip.
+    A feature without `part` keeps applying everywhere, which is the old
+    behaviour and remains right for single-part projects.
+    """
+    return [f for f in features
+            if not f.get("part") or f.get("part") == part_stem]
+
+
 def _clear_stale_views(outdir, old_path=None, keep=()):
     """Remove images the PREVIOUS render wrote and this one did not.
 
@@ -338,7 +350,7 @@ def main():
                 result["images"] += ordered
                 result["engine_footer"] = render_lines.ENGINE_FOOTER
 
-                for feat in P.get("render", {}).get("features", []):
+                for feat in features_for(stem, P.get("render", {}).get("features", [])):
                     try:
                         ftag = "_" + str(feat["name"])
                         sec = feat.get("section")

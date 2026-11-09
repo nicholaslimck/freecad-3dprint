@@ -417,6 +417,64 @@ def test_doctor_mcp_line_is_information_only(tmp_path):
     kit = os.path.join(os.path.dirname(__file__), "..", "skills", "freecad-3dprint", "kit", "fcp")
     subprocess.run([sys.executable, os.path.join(kit, "doctor.py")], env=env, timeout=120)
     got = json.loads((tmp_path / ".out" / "doctor.json").read_text())
-    assert got["mcp"]["available"] is False
+    # available or absent depends on whether a server is running on this machine;
+    # what must hold is that the probe reports a reason and never becomes a problem
+    assert isinstance(got["mcp"]["available"], bool)
     assert got["mcp"]["reason"]
     assert not any("mcp" in p.lower() for p in got["problems"])
+
+
+def _need_freecad_part():
+    import importlib.util
+    if importlib.util.find_spec("Part") is None:
+        import pytest
+        pytest.skip("fit checks use FreeCAD Part")
+
+
+def test_fit_check_accepts_a_board_that_fits():
+    """checks.fit: an occupant inside a big cavity with headroom passes."""
+    _need_freecad_part()
+    import fit
+    import Part
+    import FreeCAD
+    host = Part.makeBox(90, 60, 24, FreeCAD.Vector(-45, -30, 0))
+    host = host.cut(Part.makeBox(86, 56, 23, FreeCAD.Vector(-43, -28, 1)))
+    P = {"checks": {"fit": [{"name": "board", "part": "case", "box_mm": [85, 56, 1.6],
+                             "at_z_mm": 3.0, "component_height_mm": 15.5}]}}
+    report = {}
+    fit.check_fit(P, {"case": host}, report)
+    assert report["fit"][0]["ok"] is True, report["fit"]
+
+
+def test_fit_check_rejects_a_case_too_shallow_for_the_board():
+    """The bug this exists to catch: cavity depth < board + connector height."""
+    _need_freecad_part()
+    import fit
+    import Part
+    import FreeCAD
+    host = Part.makeBox(90, 60, 9.6, FreeCAD.Vector(-45, -30, 0))
+    host = host.cut(Part.makeBox(86, 56, 8, FreeCAD.Vector(-43, -28, 1.6)))
+    P = {"checks": {"fit": [{"name": "board", "part": "case", "box_mm": [85, 56, 1.6],
+                             "at_z_mm": 1.6, "component_height_mm": 15.5}]}}
+    report = {}
+    fit.check_fit(P, {"case": host}, report)
+    row = report["fit"][0]
+    assert row["ok"] is False
+    assert any("above the occupant" in p for p in row["problems"]), row
+
+
+def test_fit_check_rejects_an_occupant_that_collides():
+    _need_freecad_part()
+    import fit
+    import Part
+    import FreeCAD
+    host = Part.makeBox(90, 60, 24, FreeCAD.Vector(-45, -30, 0))
+    host = host.cut(Part.makeBox(86, 56, 23, FreeCAD.Vector(-43, -28, 1)))
+    # a standoff pokes into where the board sits
+    host = host.fuse(Part.makeCylinder(3, 6, FreeCAD.Vector(29, 24.5, 0)))
+    P = {"checks": {"fit": [{"name": "board", "part": "case", "box_mm": [85, 56, 1.6],
+                             "at_z_mm": 1.0, "component_height_mm": 15.5}]}}
+    report = {}
+    fit.check_fit(P, {"case": host}, report)
+    assert report["fit"][0]["ok"] is False
+    assert report["fit"][0]["interference_mm3"] > 0.5

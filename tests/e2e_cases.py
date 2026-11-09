@@ -344,6 +344,25 @@ def main(argv):
     whole = [i for i in rs["images"] if i["view"] in ("iso", "front", "bottom")]
     expect(len(whole) >= 3, "the whole-part panels must survive a bad feature")
 
+    print("10. an occupant that does not fit is an error, not a warning")
+    g = Case("occupant", COUPON,
+             params("occupant", {"length": 40, "width": 20, "floor": 1.6, "wall": 1.2,
+                                 "height": 12, "lip": 0.8, "eps": 0.01}, [40, 20, 12]))
+    # a 30 x 10 x 1.6 board with 40 mm of connector standing on it: the part is
+    # only 12 mm tall, so this cannot fit and must fail the check outright
+    g.p["checks"]["fit"] = [{"name": "board", "part": "occupant",
+                             "box_mm": [30.0, 10.0, 1.6], "at_z_mm": 1.6,
+                             "component_height_mm": 40.0}]
+    g.write_params(g.p)
+    g.run("build.py")
+    g.run(os.path.join("fcp", "check_print.py"))
+    rep = g.json("report.json")
+    expect(rep["pass"] is False, "a board that cannot fit must fail the report")
+    found = [e.get("code") for p in rep["parts"] for e in p.get("errors", [])]
+    expect("fit_collision" in found, "the failure must be fit_collision, got %s" % found)
+    expect(any(not row["ok"] for row in rep.get("fit") or []),
+           "report.fit must carry the failed row")
+
     print()
     if failures:
         print("FAILED %d check(s)" % len(failures))

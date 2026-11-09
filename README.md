@@ -148,6 +148,7 @@ skills/freecad-3dprint/
       cadlib.py             geometry helpers: holes, counterbores, teardrops, fillets,
                             section/coupon, export + manifest, no-BOM writes
       analysis.py           pure-numpy flat-face regions and bridge/cantilever classification
+      fit.py                checks.fit: does the occupant an enclosure is for fit inside it?
       design_hash.py        hash of the design-relevant params (stdlib only)
       cli.py                run(main, module_name=__name__): main() only when FreeCAD ran the file
       check_print.py        printability checks -> .out/report.json

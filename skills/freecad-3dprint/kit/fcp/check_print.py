@@ -29,6 +29,7 @@ from analysis import (  # noqa: E402
     group_regions,
     overhang_mask,
 )
+from fit import check_fit  # noqa: E402
 
 
 # ---------------------------------------------------------------- findings
@@ -498,6 +499,18 @@ def main():
         for rec in status["parts"]:
             report["parts"].append(check_part(rec, P, designs, multi))
         check_relations(P, designs, report)
+        check_fit(P, designs, report)
+        # a failed fit is an ERROR on the host part, never a triageable warning
+        for row in report.get("fit") or []:
+            if row.get("ok"):
+                continue
+            host = next((p for p in report["parts"] if p["name"] == row.get("part")), None)
+            if host is None:
+                continue
+            host["errors"].append({"code": "fit_collision",
+                                   "text": "%s does not fit: %s"
+                                           % (row["name"], "; ".join(row["problems"])),
+                                   "fit": row})
         coupon = check_coupon(P, report)
         if coupon:
             report["coupon"] = coupon
