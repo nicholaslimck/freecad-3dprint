@@ -41,14 +41,20 @@ def check_fit(P, designs, report):
             ghost = Part.makeBox(sx, sy, sz, FreeCAD.Vector(-sx / 2.0, -sy / 2.0, at))
             clash = float(host.common(ghost).Volume)
 
-            # headroom = host's highest material above the occupant, minus its top.
-            # Measured from the host's own bbox so a lid is never mistaken for it.
-            hb = host.BoundBox
-            above = [fc for fc in host.Faces
-                     if fc.BoundBox.ZMin >= at + sz - 1e-6 and fc.BoundBox.ZMax > at + sz + 1e-6]
-            ceiling = min((fc.BoundBox.ZMin for fc in above), default=hb.ZMax)
-            room = ceiling - (at + sz)
+            # Headroom is measured over the occupant's own footprint, not from the
+            # part's whole bbox: a wall beside the occupant must not count as a
+            # ceiling, and a standoff rim above it must not either. Probe a column
+            # standing on the occupant and take the first solid material above.
             need = float(f.get("component_height_mm", 0.0))
+            column = Part.makeBox(sx, sy, need + 2.0,
+                                  FreeCAD.Vector(-sx / 2.0, -sy / 2.0, at + sz))
+            over = host.common(column)
+            if over.Solids:
+                room = over.BoundBox.ZMin - (at + sz)
+            else:
+                # nothing above the occupant: the host's own top is the ceiling.
+                # An open-topped part still only holds what fits inside it.
+                room = host.BoundBox.ZMax - (at + sz)
 
             row["interference_mm3"] = round(clash, 3)
             row["headroom_mm"] = round(room, 2)
