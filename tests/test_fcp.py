@@ -387,3 +387,13 @@ def test_nested_workspace_is_detected(tmp_path):
     normal = tmp_path / "proj" / ".freecad-3dprint"
     normal.mkdir(parents=True)
     assert nested_workspace(str(normal)) == ""
+
+
+def test_manifest_hashes_each_fcp_module_once():
+    """export_all hashes every *.py in fcp/. A duplicate name (case or dir) makes the gate stale."""
+    import os
+    kit = os.path.join(os.path.dirname(__file__), "..", "skills", "freecad-3dprint", "kit", "fcp")
+    names = [n for n in os.listdir(kit) if n.endswith(".py")]
+    lower = [n.lower() for n in names]
+    assert len(lower) == len(set(lower)), "two fcp modules differ only by case: %s" % names
+    assert "design_hash.py" in names and "analysis.py" in names

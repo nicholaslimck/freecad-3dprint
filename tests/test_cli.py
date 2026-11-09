@@ -116,3 +116,26 @@ def test_importing_gate_has_no_side_effects_without_fcp_no_main(tmp_path):
         env=env, capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     assert not (tmp_path / ".out").exists(), "importing a kit module wrote to FCP_PROJECT"
+
+
+def test_render_views_import_runs_nothing(tmp_path):
+    """The spike's bug: importing render_views re-rendered the real .out/views mid-run."""
+    env = {k: v for k, v in os.environ.items() if k != "FCP_NO_MAIN"}
+    env["FCP_PROJECT"] = str(tmp_path)
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, %r); import render_views, check_print" % KIT],
+        env=env, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert not (tmp_path / ".out").exists()
+
+
+def test_check_print_module_helper_restores_the_previous_value(monkeypatch):
+    sys.path.insert(0, KIT)
+    import render_views
+    monkeypatch.delenv("FCP_NO_MAIN", raising=False)
+    render_views._check_print_module()
+    assert "FCP_NO_MAIN" not in os.environ
+    monkeypatch.setenv("FCP_NO_MAIN", "0")
+    render_views._check_print_module()
+    assert os.environ["FCP_NO_MAIN"] == "0"
